@@ -408,7 +408,91 @@ const calculateOverlayBounds = (
 const handleClass =
   "interactive pointer-events-auto absolute rounded-full border border-amber-200/35 bg-amber-200/20 shadow-[0_0_18px_rgba(251,191,36,0.16)] backdrop-blur transition hover:border-amber-100/70 hover:bg-amber-200/35 active:bg-amber-100/45"
 
-const OverlayGrabHandles = () => {
+const shouldBlockOverlayDrag = (target: EventTarget | null) => {
+  if (!(target instanceof Element)) return true
+
+  return Boolean(
+    target.closest(
+      [
+        "a",
+        "button",
+        "input",
+        "select",
+        "textarea",
+        "[contenteditable='true']",
+        "[data-overlay-no-drag='true']",
+        ".interactive"
+      ].join(",")
+    )
+  )
+}
+
+const startOverlayDrag = async ({
+  mode,
+  startX,
+  startY,
+  onDragStart,
+  onDragEnd
+}: {
+  mode: OverlayGrabMode
+  startX: number
+  startY: number
+  onDragStart?: () => void
+  onDragEnd?: () => void
+}) => {
+  const startBounds = await window.electronAPI.getOverlayBounds()
+  if (!startBounds) return
+
+  let frame = 0
+  let latestBounds = startBounds
+
+  const applyLatestBounds = () => {
+    frame = 0
+    void window.electronAPI.setOverlayBounds(latestBounds)
+  }
+
+  const stopDrag = () => {
+    if (frame) {
+      window.cancelAnimationFrame(frame)
+      frame = 0
+    }
+
+    void window.electronAPI.setOverlayBounds(latestBounds)
+    window.removeEventListener("pointermove", onPointerMove)
+    window.removeEventListener("pointerup", stopDrag)
+    window.removeEventListener("pointercancel", stopDrag)
+    window.removeEventListener("blur", stopDrag)
+    onDragEnd?.()
+  }
+
+  const onPointerMove = (moveEvent: PointerEvent) => {
+    moveEvent.preventDefault()
+    latestBounds = calculateOverlayBounds(
+      mode,
+      startBounds,
+      moveEvent.screenX - startX,
+      moveEvent.screenY - startY
+    )
+
+    if (!frame) {
+      frame = window.requestAnimationFrame(applyLatestBounds)
+    }
+  }
+
+  onDragStart?.()
+  window.addEventListener("pointermove", onPointerMove, { passive: false })
+  window.addEventListener("pointerup", stopDrag)
+  window.addEventListener("pointercancel", stopDrag)
+  window.addEventListener("blur", stopDrag)
+}
+
+const OverlayGrabHandles = ({
+  onDragStart,
+  onDragEnd
+}: {
+  onDragStart?: () => void
+  onDragEnd?: () => void
+}) => {
   const [overlayOpacity, setOverlayOpacity] = useState(defaultControlSettings.window.overlayOpacity)
   const overlayOpacityRef = useRef(defaultControlSettings.window.overlayOpacity)
   const opacityFrameRef = useRef<number | null>(null)
@@ -476,47 +560,13 @@ const OverlayGrabHandles = () => {
     event.preventDefault()
     event.stopPropagation()
 
-    const startBounds = await window.electronAPI.getOverlayBounds()
-    if (!startBounds) return
-
-    const startX = event.screenX
-    const startY = event.screenY
-    let frame = 0
-    let latestBounds = startBounds
-
-    const applyLatestBounds = () => {
-      frame = 0
-      void window.electronAPI.setOverlayBounds(latestBounds)
-    }
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault()
-      latestBounds = calculateOverlayBounds(
-        mode,
-        startBounds,
-        moveEvent.screenX - startX,
-        moveEvent.screenY - startY
-      )
-
-      if (!frame) {
-        frame = window.requestAnimationFrame(applyLatestBounds)
-      }
-    }
-
-    const stopDrag = () => {
-      if (frame) {
-        window.cancelAnimationFrame(frame)
-        frame = 0
-      }
-      void window.electronAPI.setOverlayBounds(latestBounds)
-      window.removeEventListener("pointermove", onPointerMove)
-      window.removeEventListener("pointerup", stopDrag)
-      window.removeEventListener("pointercancel", stopDrag)
-    }
-
-    window.addEventListener("pointermove", onPointerMove, { passive: false })
-    window.addEventListener("pointerup", stopDrag)
-    window.addEventListener("pointercancel", stopDrag)
+    await startOverlayDrag({
+      mode,
+      startX: event.screenX,
+      startY: event.screenY,
+      onDragStart,
+      onDragEnd
+    })
   }
 
   const transparency = opacityToTransparency(overlayOpacity)
@@ -662,6 +712,7 @@ const Queue: React.FC<QueueProps> = () => {
     description: "",
     variant: "neutral"
   })
+  const [isOverlayDragging, setIsOverlayDragging] = useState(false)
 
   useEffect(() => {
     setStoredMeetings(loadStoredMeetings())
@@ -1379,6 +1430,22 @@ const Queue: React.FC<QueueProps> = () => {
     updateQueuedMeeting(id, { status: "dismissed" })
   }
 
+  const startOverlaySurfaceDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.defaultPrevented) return
+    if (shouldBlockOverlayDrag(event.target)) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    void startOverlayDrag({
+      mode: "move",
+      startX: event.screenX,
+      startY: event.screenY,
+      onDragStart: () => setIsOverlayDragging(true),
+      onDragEnd: () => setIsOverlayDragging(false)
+    })
+  }
+
   useEffect(() => {
     if (!settings.autoDetectMeetings) return
 
@@ -1480,8 +1547,15 @@ const Queue: React.FC<QueueProps> = () => {
         <ToastDescription>{toastMessage.description}</ToastDescription>
       </Toast>
 
-      <div className="liquid-glass chat-container group relative overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl">
-        <OverlayGrabHandles />
+      <div
+        className="liquid-glass chat-container overlay-shell group relative overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl"
+        data-overlay-dragging={isOverlayDragging ? "true" : undefined}
+        onPointerDown={startOverlaySurfaceDrag}
+      >
+        <OverlayGrabHandles
+          onDragStart={() => setIsOverlayDragging(true)}
+          onDragEnd={() => setIsOverlayDragging(false)}
+        />
         <div className="draggable-area flex h-9 items-center justify-between border-b border-white/10 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <img
