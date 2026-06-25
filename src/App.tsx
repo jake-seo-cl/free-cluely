@@ -45,6 +45,7 @@ declare global {
       analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
       analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
       analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
+      getAudioCaptureCapabilities: () => Promise<{ supportsSystemAudio: boolean; platform: string }>
       readClipboardText: () => Promise<string>
 
       moveWindowLeft: () => Promise<void>
@@ -53,6 +54,9 @@ declare global {
       moveWindowDown: () => Promise<void>
       centerAndShowWindow: () => Promise<void>
       resetWindowPosition: () => Promise<void>
+      getOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>
+      setOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<{ x: number; y: number; width: number; height: number } | null>
+      setOverlayOpacity: (opacity: number) => Promise<number | null>
       quitApp: () => Promise<void>
       
       // LLM Model Management

@@ -179,6 +179,18 @@ export function initializeIpcHandlers(appState: AppState): void {
     appState.resetWindowPosition()
   })
 
+  ipcMain.handle("get-overlay-bounds", async () => {
+    return appState.getWindowBounds()
+  })
+
+  ipcMain.handle("set-overlay-bounds", async (_event, bounds) => {
+    return appState.setWindowBounds(bounds)
+  })
+
+  ipcMain.handle("set-overlay-opacity", async (_event, opacity) => {
+    return appState.setOverlayOpacity(opacity)
+  })
+
   ipcMain.handle("get-control-settings", async () => {
     return appState.getControlSettings()
   })

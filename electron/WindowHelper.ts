@@ -16,6 +16,7 @@ export class WindowHelper {
   private isWindowVisible: boolean = false
   private windowPosition: { x: number; y: number } | null = null
   private windowSize: { width: number; height: number } | null = null
+  private manualLayout: boolean = false
   private appState: AppState
 
   private step: number = 48
@@ -28,6 +29,7 @@ export class WindowHelper {
 
   public setWindowDimensions(width: number, height: number): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    if (this.manualLayout) return
 
     const workArea = this.getCurrentWorkArea()
 
@@ -206,6 +208,59 @@ export class WindowHelper {
     }
   }
 
+  private constrainManualBounds(bounds: Electron.Rectangle): Electron.Rectangle {
+    const workArea = this.getCurrentWorkArea()
+    const minWidth = 420
+    const minHeight = 260
+    const maxWidth = Math.max(minWidth, workArea.width)
+    const maxHeight = Math.max(minHeight, workArea.height)
+    const width = clamp(Math.round(bounds.width), minWidth, maxWidth)
+    const height = clamp(Math.round(bounds.height), minHeight, maxHeight)
+    const minVisible = 96
+    const minX = workArea.x - width + minVisible
+    const maxX = workArea.x + workArea.width - minVisible
+    const minY = workArea.y - height + minVisible
+    const maxY = workArea.y + workArea.height - minVisible
+
+    return {
+      x: clamp(Math.round(bounds.x), minX, maxX),
+      y: clamp(Math.round(bounds.y), minY, maxY),
+      width,
+      height
+    }
+  }
+
+  public getWindowBounds(): Electron.Rectangle | null {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return null
+    return this.mainWindow.getBounds()
+  }
+
+  public setWindowBounds(bounds: Electron.Rectangle): Electron.Rectangle | null {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return null
+
+    const nextBounds = this.constrainManualBounds(bounds)
+    this.manualLayout = true
+    this.mainWindow.setBounds(nextBounds)
+    this.windowPosition = { x: nextBounds.x, y: nextBounds.y }
+    this.windowSize = { width: nextBounds.width, height: nextBounds.height }
+    this.currentX = nextBounds.x
+    this.currentY = nextBounds.y
+    return nextBounds
+  }
+
+  public setOverlayOpacity(opacity: number): number | null {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return null
+
+    const numericOpacity = Number(opacity)
+    const nextOpacity = clamp(
+      Number.isFinite(numericOpacity) ? numericOpacity : 0.88,
+      0.35,
+      1
+    )
+    this.mainWindow.setOpacity(nextOpacity)
+    return nextOpacity
+  }
+
   public applyControlSettings(): void {
     const settings = this.appState.getControlSettings().window
     this.step = settings.movementStep
@@ -343,6 +398,7 @@ export class WindowHelper {
 
   public resetWindowPosition(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    this.manualLayout = false
     this.positionBelowMenuBar()
     this.showOverlayWindow()
   }

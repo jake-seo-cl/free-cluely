@@ -33,10 +33,14 @@ interface ElectronAPI {
   moveWindowDown: () => Promise<void>
   centerAndShowWindow: () => Promise<void>
   resetWindowPosition: () => Promise<void>
+  getOverlayBounds: () => Promise<{ x: number; y: number; width: number; height: number } | null>
+  setOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<{ x: number; y: number; width: number; height: number } | null>
+  setOverlayOpacity: (opacity: number) => Promise<number | null>
   analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
+  getAudioCaptureCapabilities: () => Promise<{ supportsSystemAudio: boolean; platform: string }>
   readClipboardText: () => Promise<string>
   quitApp: () => Promise<void>
   
@@ -197,10 +201,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveWindowDown: () => ipcRenderer.invoke("move-window-down"),
   centerAndShowWindow: () => ipcRenderer.invoke("center-and-show-window"),
   resetWindowPosition: () => ipcRenderer.invoke("reset-window-position"),
+  getOverlayBounds: () => ipcRenderer.invoke("get-overlay-bounds"),
+  setOverlayBounds: (bounds: { x: number; y: number; width: number; height: number }) => ipcRenderer.invoke("set-overlay-bounds", bounds),
+  setOverlayOpacity: (opacity: number) => ipcRenderer.invoke("set-overlay-opacity", opacity),
   analyzeAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType),
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-meeting-audio-base64", data, mimeType),
   analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
   analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
+  getAudioCaptureCapabilities: () =>
+    Promise.resolve({
+      supportsSystemAudio: process.platform === "win32",
+      platform: process.platform
+    }),
   readClipboardText: () => ipcRenderer.invoke("read-clipboard-text"),
   quitApp: () => ipcRenderer.invoke("quit-app"),
   

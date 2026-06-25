@@ -32,9 +32,11 @@ import {
 } from "../types/meeting"
 import SettingsPanel from "../components/ui/SettingsPanel"
 import {
+  defaultControlSettings,
   defaultSidekickSettings,
   SidekickSettings
 } from "../types/settings"
+import { BUILD_VERSION } from "../generated/buildVersion"
 import {
   Toast,
   ToastDescription,
@@ -75,6 +77,8 @@ const confidenceClasses: Record<ConfidenceLevel, string> = {
   medium: "border-amber-400/60 bg-amber-500/10 text-amber-100",
   low: "border-rose-400/60 bg-rose-500/10 text-rose-100"
 }
+
+type MeetingCaptureSource = "system" | "mic" | "none"
 
 const newMeetingId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
@@ -324,10 +328,298 @@ const SectionTitle = ({
   </div>
 )
 
+type OverlayBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type OverlayGrabMode =
+  | "move"
+  | "n"
+  | "e"
+  | "s"
+  | "w"
+  | "ne"
+  | "nw"
+  | "se"
+  | "sw"
+
+const minOverlayWidth = 420
+const minOverlayHeight = 260
+const minOverlayOpacity = 0.35
+const maxOverlayOpacity = 1
+const maxOverlayTransparency = Math.round((1 - minOverlayOpacity) * 100)
+
+const clampOverlayOpacity = (opacity: number) =>
+  Math.min(
+    maxOverlayOpacity,
+    Math.max(
+      minOverlayOpacity,
+      Number.isFinite(opacity) ? opacity : defaultControlSettings.window.overlayOpacity
+    )
+  )
+
+const opacityToTransparency = (opacity: number) =>
+  Math.round((1 - clampOverlayOpacity(opacity)) * 100)
+
+const transparencyToOpacity = (transparency: number) =>
+  clampOverlayOpacity(1 - transparency / 100)
+
+const calculateOverlayBounds = (
+  mode: OverlayGrabMode,
+  startBounds: OverlayBounds,
+  deltaX: number,
+  deltaY: number
+): OverlayBounds => {
+  let { x, y, width, height } = startBounds
+
+  if (mode === "move") {
+    return {
+      x: startBounds.x + deltaX,
+      y: startBounds.y + deltaY,
+      width,
+      height
+    }
+  }
+
+  if (mode.includes("e")) {
+    width = Math.max(minOverlayWidth, startBounds.width + deltaX)
+  }
+
+  if (mode.includes("s")) {
+    height = Math.max(minOverlayHeight, startBounds.height + deltaY)
+  }
+
+  if (mode.includes("w")) {
+    width = Math.max(minOverlayWidth, startBounds.width - deltaX)
+    x = startBounds.x + (startBounds.width - width)
+  }
+
+  if (mode.includes("n")) {
+    height = Math.max(minOverlayHeight, startBounds.height - deltaY)
+    y = startBounds.y + (startBounds.height - height)
+  }
+
+  return { x, y, width, height }
+}
+
+const handleClass =
+  "interactive pointer-events-auto absolute rounded-full border border-amber-200/35 bg-amber-200/20 shadow-[0_0_18px_rgba(251,191,36,0.16)] backdrop-blur transition hover:border-amber-100/70 hover:bg-amber-200/35 active:bg-amber-100/45"
+
+const OverlayGrabHandles = () => {
+  const [overlayOpacity, setOverlayOpacity] = useState(defaultControlSettings.window.overlayOpacity)
+  const overlayOpacityRef = useRef(defaultControlSettings.window.overlayOpacity)
+  const opacityFrameRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadOverlayOpacity = async () => {
+      try {
+        const settings = await window.electronAPI.getControlSettings()
+        if (!isMounted) return
+
+        const nextOpacity = clampOverlayOpacity(settings.window.overlayOpacity)
+        overlayOpacityRef.current = nextOpacity
+        setOverlayOpacity(nextOpacity)
+      } catch (error) {
+        console.error("Could not load overlay opacity:", error)
+      }
+    }
+
+    void loadOverlayOpacity()
+
+    return () => {
+      isMounted = false
+      if (opacityFrameRef.current !== null) {
+        window.cancelAnimationFrame(opacityFrameRef.current)
+        opacityFrameRef.current = null
+      }
+    }
+  }, [])
+
+  const applyLiveOpacity = (opacity: number) => {
+    const nextOpacity = clampOverlayOpacity(opacity)
+    overlayOpacityRef.current = nextOpacity
+    setOverlayOpacity(nextOpacity)
+
+    if (opacityFrameRef.current !== null) return
+
+    opacityFrameRef.current = window.requestAnimationFrame(() => {
+      opacityFrameRef.current = null
+      void window.electronAPI.setOverlayOpacity(overlayOpacityRef.current)
+    })
+  }
+
+  const persistOverlayOpacity = async () => {
+    const nextOpacity = overlayOpacityRef.current
+    try {
+      const settings = await window.electronAPI.updateControlSettings({
+        window: { overlayOpacity: nextOpacity }
+      })
+      const savedOpacity = clampOverlayOpacity(settings.window.overlayOpacity)
+      overlayOpacityRef.current = savedOpacity
+      setOverlayOpacity(savedOpacity)
+    } catch (error) {
+      console.error("Could not save overlay opacity:", error)
+      void window.electronAPI.setOverlayOpacity(nextOpacity)
+    }
+  }
+
+  const startDrag = async (
+    event: React.PointerEvent<HTMLButtonElement>,
+    mode: OverlayGrabMode
+  ) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+
+    const startBounds = await window.electronAPI.getOverlayBounds()
+    if (!startBounds) return
+
+    const startX = event.screenX
+    const startY = event.screenY
+    let frame = 0
+    let latestBounds = startBounds
+
+    const applyLatestBounds = () => {
+      frame = 0
+      void window.electronAPI.setOverlayBounds(latestBounds)
+    }
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      moveEvent.preventDefault()
+      latestBounds = calculateOverlayBounds(
+        mode,
+        startBounds,
+        moveEvent.screenX - startX,
+        moveEvent.screenY - startY
+      )
+
+      if (!frame) {
+        frame = window.requestAnimationFrame(applyLatestBounds)
+      }
+    }
+
+    const stopDrag = () => {
+      if (frame) {
+        window.cancelAnimationFrame(frame)
+        frame = 0
+      }
+      void window.electronAPI.setOverlayBounds(latestBounds)
+      window.removeEventListener("pointermove", onPointerMove)
+      window.removeEventListener("pointerup", stopDrag)
+      window.removeEventListener("pointercancel", stopDrag)
+    }
+
+    window.addEventListener("pointermove", onPointerMove, { passive: false })
+    window.addEventListener("pointerup", stopDrag)
+    window.addEventListener("pointercancel", stopDrag)
+  }
+
+  const transparency = opacityToTransparency(overlayOpacity)
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[1100] opacity-0 transition duration-150 group-hover:opacity-100">
+      <button
+        type="button"
+        title="Move Sidekick"
+        aria-label="Move Sidekick"
+        onPointerDown={(event) => void startDrag(event, "move")}
+        className={`${handleClass} left-1/2 top-1 h-3 w-20 -translate-x-1/2 cursor-grab active:cursor-grabbing`}
+      />
+      <button
+        type="button"
+        title="Resize from top"
+        aria-label="Resize from top"
+        onPointerDown={(event) => void startDrag(event, "n")}
+        className={`${handleClass} left-28 right-56 top-0 h-2 cursor-n-resize`}
+      />
+      <div
+        title={`Window transparency ${transparency}%`}
+        className="interactive pointer-events-auto absolute right-7 top-1 flex h-6 w-44 items-center gap-2 rounded-full border border-amber-200/35 bg-zinc-950/70 px-2 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <Settings2 className="h-3 w-3 shrink-0 text-amber-100/80" />
+        <input
+          type="range"
+          min={0}
+          max={maxOverlayTransparency}
+          step={1}
+          value={transparency}
+          aria-label="Window transparency"
+          onChange={(event) => {
+            applyLiveOpacity(transparencyToOpacity(Number(event.currentTarget.value)))
+          }}
+          onPointerUp={() => void persistOverlayOpacity()}
+          onKeyUp={() => void persistOverlayOpacity()}
+          onBlur={() => void persistOverlayOpacity()}
+          className="interactive h-1.5 min-w-0 flex-1 cursor-pointer accent-amber-200"
+        />
+        <span className="w-7 text-right font-mono text-[10px] leading-none text-amber-50/80">
+          {transparency}%
+        </span>
+      </div>
+      <button
+        type="button"
+        title="Resize from bottom"
+        aria-label="Resize from bottom"
+        onPointerDown={(event) => void startDrag(event, "s")}
+        className={`${handleClass} bottom-0 left-28 right-28 h-2 cursor-s-resize`}
+      />
+      <button
+        type="button"
+        title="Resize from left"
+        aria-label="Resize from left"
+        onPointerDown={(event) => void startDrag(event, "w")}
+        className={`${handleClass} bottom-16 left-0 top-16 w-2 cursor-w-resize`}
+      />
+      <button
+        type="button"
+        title="Resize from right"
+        aria-label="Resize from right"
+        onPointerDown={(event) => void startDrag(event, "e")}
+        className={`${handleClass} bottom-16 right-0 top-16 w-2 cursor-e-resize`}
+      />
+      <button
+        type="button"
+        title="Resize from top left"
+        aria-label="Resize from top left"
+        onPointerDown={(event) => void startDrag(event, "nw")}
+        className={`${handleClass} left-0 top-0 h-5 w-5 cursor-nw-resize`}
+      />
+      <button
+        type="button"
+        title="Resize from top right"
+        aria-label="Resize from top right"
+        onPointerDown={(event) => void startDrag(event, "ne")}
+        className={`${handleClass} right-0 top-0 h-5 w-5 cursor-ne-resize`}
+      />
+      <button
+        type="button"
+        title="Resize from bottom left"
+        aria-label="Resize from bottom left"
+        onPointerDown={(event) => void startDrag(event, "sw")}
+        className={`${handleClass} bottom-0 left-0 h-5 w-5 cursor-sw-resize`}
+      />
+      <button
+        type="button"
+        title="Resize from bottom right"
+        aria-label="Resize from bottom right"
+        onPointerDown={(event) => void startDrag(event, "se")}
+        className={`${handleClass} bottom-0 right-0 h-5 w-5 cursor-se-resize`}
+      />
+    </div>
+  )
+}
+
 const Queue: React.FC<QueueProps> = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const captureSourceRef = useRef<MeetingCaptureSource>("none")
   const startedAtRef = useRef(Date.now())
   const transcriptRef = useRef<TranscriptSegment[]>([])
   const notesRef = useRef<MeetingNotes | undefined>(undefined)
@@ -349,6 +641,7 @@ const Queue: React.FC<QueueProps> = () => {
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [status, setStatus] = useState("Ready")
+  const [captureSource, setCaptureSource] = useState<MeetingCaptureSource>("none")
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([])
   const [meetingInsights, setMeetingInsights] = useState<MeetingAudioAnalysis[]>([])
@@ -548,6 +841,18 @@ const Queue: React.FC<QueueProps> = () => {
     : isMeetingActive
       ? "bg-amber-300"
       : "bg-zinc-500"
+  const captureSourceLabel =
+    captureSource === "system"
+      ? "System audio"
+      : captureSource === "mic"
+        ? "Mic fallback"
+        : "No audio"
+  const captureSourceClasses =
+    captureSource === "system"
+      ? "border-emerald-300/40 bg-emerald-500/10 text-emerald-100"
+      : captureSource === "mic"
+        ? "border-amber-300/40 bg-amber-500/10 text-amber-100"
+        : "border-white/10 bg-white/5 text-zinc-400"
 
   const filteredMeetings = useMemo(() => {
     const query = memoryQuery.trim().toLowerCase()
@@ -639,10 +944,12 @@ const Queue: React.FC<QueueProps> = () => {
     setSuggestions([])
     setNotes(undefined)
     setStatus("Ready")
+    setCaptureSource("none")
     setElapsedSeconds(0)
     transcriptRef.current = []
     notesRef.current = undefined
     activeQueuedMeetingIdRef.current = null
+    captureSourceRef.current = "none"
     lastAutoSuggestionSegmentCountRef.current = 0
   }
 
@@ -668,6 +975,66 @@ const Queue: React.FC<QueueProps> = () => {
     lastAutoSuggestionSegmentCountRef.current = 0
   }
 
+  const stopStream = (stream: MediaStream | null) => {
+    stream?.getTracks().forEach((track) => track.stop())
+  }
+
+  const requestSystemAudioStream = async () => {
+    let displayStream: MediaStream | null = null
+
+    try {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: true
+      })
+
+      const audioTracks = displayStream.getAudioTracks()
+      displayStream.getVideoTracks().forEach((track) => track.stop())
+
+      if (audioTracks.length === 0) {
+        stopStream(displayStream)
+        return null
+      }
+
+      return new MediaStream(audioTracks)
+    } catch (error) {
+      console.warn("System audio capture unavailable; falling back to microphone.", error)
+      stopStream(displayStream)
+      return null
+    }
+  }
+
+  const requestMicrophoneStream = () =>
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    })
+
+  const requestMeetingAudioStream = async (): Promise<{
+    stream: MediaStream
+    source: MeetingCaptureSource
+  }> => {
+    const capabilities = await window.electronAPI.getAudioCaptureCapabilities()
+    const systemStream = capabilities.supportsSystemAudio
+      ? await requestSystemAudioStream()
+      : null
+
+    if (systemStream) {
+      return {
+        stream: systemStream,
+        source: "system"
+      }
+    }
+
+    return {
+      stream: await requestMicrophoneStream(),
+      source: "mic"
+    }
+  }
+
   const startMeeting = async (queuedMeeting?: QueuedMeeting) => {
     if (isMeetingActive) return
 
@@ -678,19 +1045,21 @@ const Queue: React.FC<QueueProps> = () => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const { stream, source } = await requestMeetingAudioStream()
       const recorder = new MediaRecorder(stream)
       streamRef.current = stream
+      captureSourceRef.current = source
       mediaRecorderRef.current = recorder
       startedAtRef.current = Date.now()
       setElapsedSeconds(0)
+      setCaptureSource(source)
       setIsMeetingActive(true)
       setIsRecording(true)
-      setStatus("Listening")
+      setStatus(source === "system" ? "Listening to meeting audio" : "Mic fallback active")
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
-          const task = processAudioChunk(event.data)
+          const task = processAudioChunk(event.data, source)
           audioTasksRef.current = [...audioTasksRef.current, task]
           void task.finally(() => {
             audioTasksRef.current = audioTasksRef.current.filter((item) => item !== task)
@@ -708,8 +1077,8 @@ const Queue: React.FC<QueueProps> = () => {
       if (queuedMeeting) {
         updateQueuedMeeting(queuedMeeting.id, { status: "queued" })
       }
-      showToast("Mic unavailable", "Check microphone permission and try again.", "error")
-      setStatus("Mic unavailable")
+      showToast("Audio unavailable", "Check meeting audio or microphone permission and try again.", "error")
+      setStatus("Audio unavailable")
     }
   }
 
@@ -723,7 +1092,11 @@ const Queue: React.FC<QueueProps> = () => {
     } else if (recorder.state === "paused") {
       recorder.resume()
       setIsRecording(true)
-      setStatus("Listening")
+      setStatus(
+        captureSourceRef.current === "system"
+          ? "Listening to meeting audio"
+          : "Mic fallback active"
+      )
     }
   }
 
@@ -744,8 +1117,10 @@ const Queue: React.FC<QueueProps> = () => {
       }
 
       mediaRecorderRef.current = null
-      streamRef.current?.getTracks().forEach((track) => track.stop())
+      stopStream(streamRef.current)
       streamRef.current = null
+      captureSourceRef.current = "none"
+      setCaptureSource("none")
       setIsRecording(false)
     })
 
@@ -783,7 +1158,7 @@ const Queue: React.FC<QueueProps> = () => {
     setStatus("Saved")
   }
 
-  const processAudioChunk = async (blob: Blob) => {
+  const processAudioChunk = async (blob: Blob, source: MeetingCaptureSource) => {
     setIsAnalyzingAudio(true)
     try {
       const base64 = await blobToBase64(blob)
@@ -799,7 +1174,7 @@ const Queue: React.FC<QueueProps> = () => {
       if (result.transcript.trim()) {
         const segment: TranscriptSegment = {
           id: newMeetingId(),
-          speakerLabel: "Speaker",
+          speakerLabel: source === "system" ? "Other Person" : "Mic",
           startTime: Math.max(
             0,
             Date.now() - startedAtRef.current - settings.transcriptChunkSeconds * 1000
@@ -811,7 +1186,13 @@ const Queue: React.FC<QueueProps> = () => {
         setTranscriptSegments((segments) => [...segments, segment])
       }
 
-      setStatus(result.confidence === "low" ? "Low-confidence audio" : "Listening")
+      setStatus(
+        result.confidence === "low"
+          ? "Low-confidence audio"
+          : source === "system"
+            ? "Listening to meeting audio"
+            : "Mic fallback active"
+      )
     } catch (error) {
       console.error("Audio chunk analysis failed:", error)
       setStatus("Audio analysis failed")
@@ -842,7 +1223,13 @@ const Queue: React.FC<QueueProps> = () => {
         trigger
       })) as LiveMeetingSuggestion
       setSuggestions((items) => [result, ...items].slice(0, 8))
-      setStatus(isRecording ? "Listening" : "Ready")
+      setStatus(
+        isRecording
+          ? captureSourceRef.current === "system"
+            ? "Listening to meeting audio"
+            : "Mic fallback active"
+          : "Ready"
+      )
     } catch (error) {
       console.error("Live suggestion failed:", error)
       if (!options.automatic) {
@@ -1093,7 +1480,8 @@ const Queue: React.FC<QueueProps> = () => {
         <ToastDescription>{toastMessage.description}</ToastDescription>
       </Toast>
 
-      <div className="liquid-glass chat-container overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl">
+      <div className="liquid-glass chat-container group relative overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl">
+        <OverlayGrabHandles />
         <div className="draggable-area flex h-9 items-center justify-between border-b border-white/10 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <img
@@ -1103,6 +1491,9 @@ const Queue: React.FC<QueueProps> = () => {
               draggable={false}
             />
             <div className="truncate text-[13px] font-semibold">Sidekick</div>
+            <div className="rounded border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[10px] leading-none text-zinc-400">
+              {BUILD_VERSION}
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div
@@ -1158,6 +1549,9 @@ const Queue: React.FC<QueueProps> = () => {
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <span className={`rounded border px-2 py-1 text-[11px] ${captureSourceClasses}`}>
+                {captureSourceLabel}
+              </span>
               {!isMeetingActive ? (
                 <InlineButton title="Start meeting capture" onClick={startMeeting} variant="primary">
                   <Play className="h-4 w-4" />
@@ -1211,11 +1605,11 @@ const Queue: React.FC<QueueProps> = () => {
                 icon={<Mic className="h-3.5 w-3.5" />}
                 action={
                   <span className="text-[11px] text-zinc-400">
-                    {isAnalyzingAudio ? "Analyzing" : `${transcriptSegments.length} segments`}
+                    {isAnalyzingAudio ? "Analyzing" : captureSourceLabel}
                   </span>
                 }
               >
-                Other Person
+                {captureSource === "mic" ? "Mic Audio" : "Other Person"}
               </SectionTitle>
               <div className="h-[330px] space-y-2 overflow-y-auto pr-1">
                 {transcriptSegments.length === 0 ? (

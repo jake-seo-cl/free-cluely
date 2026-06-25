@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron"
+import { app, BrowserWindow, Tray, Menu, nativeImage, desktopCapturer, session } from "electron"
 import { initializeIpcHandlers } from "./ipcHandlers"
 import { WindowHelper } from "./WindowHelper"
 import { ScreenshotHelper } from "./ScreenshotHelper"
@@ -16,6 +16,30 @@ const getAssetPath = (...parts: string[]) =>
   app.isPackaged
     ? path.join(process.resourcesPath, "assets", ...parts)
     : path.join(app.getAppPath(), "assets", ...parts)
+
+function registerSystemAudioCapture(): void {
+  session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ["screen"],
+        thumbnailSize: { width: 0, height: 0 }
+      })
+      const screen = sources[0]
+      if (!screen) {
+        callback({})
+        return
+      }
+
+      callback({
+        video: screen,
+        audio: process.platform === "win32" ? "loopback" : undefined
+      })
+    } catch (error) {
+      console.error("Unable to resolve display media source:", error)
+      callback({})
+    }
+  })
+}
 
 function createTrayImage() {
   const image = nativeImage
@@ -181,6 +205,18 @@ export class AppState {
     this.windowHelper.setWindowDimensions(width, height)
   }
 
+  public getWindowBounds(): Electron.Rectangle | null {
+    return this.windowHelper.getWindowBounds()
+  }
+
+  public setWindowBounds(bounds: Electron.Rectangle): Electron.Rectangle | null {
+    return this.windowHelper.setWindowBounds(bounds)
+  }
+
+  public setOverlayOpacity(opacity: number): number | null {
+    return this.windowHelper.setOverlayOpacity(opacity)
+  }
+
   public clearQueues(): void {
     this.screenshotHelper.clearQueues()
 
@@ -340,6 +376,7 @@ async function initializeApp() {
 
   app.whenReady().then(() => {
     console.log("App is ready")
+    registerSystemAudioCapture()
     if (process.platform === "darwin") {
       app.setActivationPolicy("accessory")
     }
