@@ -1,5 +1,5 @@
 
-import { BrowserWindow, screen } from "electron"
+import { app, BrowserWindow, screen } from "electron"
 import { AppState } from "main"
 import path from "node:path"
 
@@ -30,45 +30,35 @@ export class WindowHelper {
   public setWindowDimensions(width: number, height: number): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
 
-    // Get current window position
-    const [currentX, currentY] = this.mainWindow.getPosition()
-
-    // Get screen dimensions
     const primaryDisplay = screen.getPrimaryDisplay()
-    const workArea = primaryDisplay.workAreaSize
+    const workArea = primaryDisplay.workArea
 
-    // Use 75% width if debugging has occurred, otherwise use 60%
     const maxAllowedWidth = Math.floor(
       workArea.width * (this.appState.getHasDebugged() ? 0.75 : 0.5)
     )
-
-    // Ensure width doesn't exceed max allowed width and height is reasonable
     const newWidth = Math.min(width + 32, maxAllowedWidth)
-    const newHeight = Math.ceil(height)
+    const newHeight = Math.min(Math.ceil(height), workArea.height - 24)
+    const newX = Math.floor(workArea.x + (workArea.width - newWidth) / 2)
+    const newY = workArea.y + 12
 
-    // Center the window horizontally if it would go off screen
-    const maxX = workArea.width - newWidth
-    const newX = Math.min(Math.max(currentX, 0), maxX)
-
-    // Update window bounds
     this.mainWindow.setBounds({
       x: newX,
-      y: currentY,
+      y: newY,
       width: newWidth,
       height: newHeight
     })
 
-    // Update internal state
-    this.windowPosition = { x: newX, y: currentY }
+    this.windowPosition = { x: newX, y: newY }
     this.windowSize = { width: newWidth, height: newHeight }
     this.currentX = newX
+    this.currentY = newY
   }
 
   public createWindow(): void {
     if (this.mainWindow !== null) return
 
     const primaryDisplay = screen.getPrimaryDisplay()
-    const workArea = primaryDisplay.workAreaSize
+    const workArea = primaryDisplay.workArea
     this.screenWidth = workArea.width
     this.screenHeight = workArea.height
 
@@ -99,7 +89,7 @@ export class WindowHelper {
 
     this.mainWindow = new BrowserWindow(windowSettings)
     // this.mainWindow.webContents.openDevTools()
-    this.mainWindow.setContentProtection(true)
+    this.mainWindow.setContentProtection(false)
 
     if (process.platform === "darwin") {
       this.mainWindow.setVisibleOnAllWorkspaces(true, {
@@ -119,20 +109,25 @@ export class WindowHelper {
     this.mainWindow.setSkipTaskbar(true)
     this.mainWindow.setAlwaysOnTop(true)
 
-    this.mainWindow.loadURL(startUrl).catch((err) => {
-      console.error("Failed to load URL:", err)
+    this.mainWindow.webContents.once("did-finish-load", () => {
+      setTimeout(() => {
+        if (this.mainWindow && !this.mainWindow.isDestroyed() && !this.mainWindow.isVisible()) {
+          this.centerAndShowWindow()
+        }
+      }, 250)
     })
 
-    // Show window after loading URL and center it
+    // Place the overlay just below the notch/menu bar on first launch.
     this.mainWindow.once('ready-to-show', () => {
       if (this.mainWindow) {
-        // Center the window first
-        this.centerWindow()
-        this.mainWindow.show()
-        this.mainWindow.focus()
-        this.mainWindow.setAlwaysOnTop(true)
-        console.log("Window is now visible and centered")
+        this.positionBelowMenuBar()
+        this.showOverlayWindow()
+        console.log("Window is ready below the menu bar")
       }
+    })
+
+    this.mainWindow.loadURL(startUrl).catch((err) => {
+      console.error("Failed to load URL:", err)
     })
 
     const bounds = this.mainWindow.getBounds()
@@ -142,7 +137,7 @@ export class WindowHelper {
     this.currentY = bounds.y
 
     this.setupWindowListeners()
-    this.isWindowVisible = true
+    this.isWindowVisible = false
   }
 
   private setupWindowListeners(): void {
@@ -177,7 +172,7 @@ export class WindowHelper {
   }
 
   public isVisible(): boolean {
-    return this.isWindowVisible
+    return this.mainWindow?.isVisible() ?? false
   }
 
   public hideMainWindow(): void {
@@ -208,49 +203,68 @@ export class WindowHelper {
       })
     }
 
-    this.mainWindow.showInactive()
-
-    this.isWindowVisible = true
+    this.showOverlayWindow()
   }
 
   public toggleMainWindow(): void {
-    if (this.isWindowVisible) {
+    if (this.isVisible()) {
       this.hideMainWindow()
     } else {
-      this.showMainWindow()
+      this.centerAndShowWindow()
     }
   }
 
-  private centerWindow(): void {
+  private positionBelowMenuBar(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) {
       return
     }
 
     const primaryDisplay = screen.getPrimaryDisplay()
-    const workArea = primaryDisplay.workAreaSize
-    
-    // Get current window size or use defaults
+    const workArea = primaryDisplay.workArea
     const windowBounds = this.mainWindow.getBounds()
     const windowWidth = windowBounds.width || 400
-    const windowHeight = windowBounds.height || 600
-    
-    // Calculate center position
-    const centerX = Math.floor((workArea.width - windowWidth) / 2)
-    const centerY = Math.floor((workArea.height - windowHeight) / 2)
-    
-    // Set window position
+    const windowHeight = Math.min(windowBounds.height || 600, workArea.height - 24)
+    const x = Math.floor(workArea.x + (workArea.width - windowWidth) / 2)
+    const y = workArea.y + 12
+
     this.mainWindow.setBounds({
-      x: centerX,
-      y: centerY,
+      x,
+      y,
       width: windowWidth,
       height: windowHeight
     })
-    
-    // Update internal state
-    this.windowPosition = { x: centerX, y: centerY }
+
+    this.windowPosition = { x, y }
     this.windowSize = { width: windowWidth, height: windowHeight }
-    this.currentX = centerX
-    this.currentY = centerY
+    this.currentX = x
+    this.currentY = y
+  }
+
+  private showOverlayWindow(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+
+    if (process.platform === "darwin") {
+      app.focus({ steal: true })
+      this.mainWindow.setVisibleOnAllWorkspaces(true, {
+        visibleOnFullScreen: true,
+        skipTransformProcessType: true
+      })
+      this.mainWindow.setAlwaysOnTop(true, "screen-saver", 1)
+    } else {
+      this.mainWindow.setAlwaysOnTop(true)
+    }
+
+    this.mainWindow.setFocusable(true)
+    this.mainWindow.show()
+    this.mainWindow.moveTop()
+    this.mainWindow.focus()
+    this.isWindowVisible = true
+
+    console.log("Overlay visible", {
+      visible: this.mainWindow.isVisible(),
+      focused: this.mainWindow.isFocused(),
+      bounds: this.mainWindow.getBounds()
+    })
   }
 
   public centerAndShowWindow(): void {
@@ -259,13 +273,8 @@ export class WindowHelper {
       return
     }
 
-    this.centerWindow()
-    this.mainWindow.show()
-    this.mainWindow.focus()
-    this.mainWindow.setAlwaysOnTop(true)
-    this.isWindowVisible = true
-    
-    console.log(`Window centered and shown`)
+    this.positionBelowMenuBar()
+    this.showOverlayWindow()
   }
 
   // New methods for window movement

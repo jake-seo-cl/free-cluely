@@ -20,7 +20,7 @@ export class ProcessingHelper {
     this.appState = appState
     
     // Check if user wants to use Ollama
-    const useOllama = process.env.USE_OLLAMA === "true"
+    const useOllama = process.env.USE_OLLAMA === "true" || !process.env.GEMINI_API_KEY
     const ollamaModel = process.env.OLLAMA_MODEL // Don't set default here, let LLMHelper auto-detect
     const ollamaUrl = process.env.OLLAMA_URL || "http://localhost:11434"
     

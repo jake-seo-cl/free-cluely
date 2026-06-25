@@ -1,217 +1,416 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from "react"
 
 interface ModelConfig {
-  provider: "ollama" | "gemini";
-  model: string;
-  isOllama: boolean;
+  provider: "ollama" | "gemini"
+  model: string
+  isOllama: boolean
+}
+
+interface RecommendedLocalModel {
+  id: string
+  name: string
+  languageProfile: "eng_kor" | "english"
+  tier: "default" | "light" | "quality"
+  size: string
+  context: string
+  notes: string
+}
+
+interface LocalRuntimeStatus {
+  installed: boolean
+  running: boolean
+  source: "bundled" | "managed" | "external" | "missing"
+  url: string
+  binaryPath?: string
+  modelDir: string
+  message: string
 }
 
 interface ModelSelectorProps {
-  onModelChange?: (provider: "ollama" | "gemini", model: string) => void;
-  onChatOpen?: () => void;
+  onModelChange?: (provider: "ollama" | "gemini", model: string) => void
+  onChatOpen?: () => void
+}
+
+const languageLabels = {
+  eng_kor: "English + Korean",
+  english: "English"
+}
+
+const tierLabels = {
+  default: "Recommended",
+  light: "Low resource",
+  quality: "Higher quality"
 }
 
 const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen }) => {
-  const [currentConfig, setCurrentConfig] = useState<ModelConfig | null>(null);
-  const [availableOllamaModels, setAvailableOllamaModels] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<'testing' | 'success' | 'error' | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [geminiApiKey, setGeminiApiKey] = useState('');
-  const [selectedProvider, setSelectedProvider] = useState<"ollama" | "gemini">("gemini");
-  const [selectedOllamaModel, setSelectedOllamaModel] = useState<string>("");
-  const [ollamaUrl, setOllamaUrl] = useState<string>("http://localhost:11434");
+  const [currentConfig, setCurrentConfig] = useState<ModelConfig | null>(null)
+  const [runtimeStatus, setRuntimeStatus] = useState<LocalRuntimeStatus | null>(null)
+  const [availableOllamaModels, setAvailableOllamaModels] = useState<string[]>([])
+  const [recommendedModels, setRecommendedModels] = useState<RecommendedLocalModel[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [actionStatus, setActionStatus] = useState<"idle" | "working" | "success" | "error">("idle")
+  const [statusMessage, setStatusMessage] = useState("Ready")
+  const [geminiApiKey, setGeminiApiKey] = useState("")
+  const [selectedProvider, setSelectedProvider] = useState<"ollama" | "gemini">("ollama")
+  const [selectedLanguageProfile, setSelectedLanguageProfile] =
+    useState<RecommendedLocalModel["languageProfile"]>("eng_kor")
+  const [selectedOllamaModel, setSelectedOllamaModel] = useState("qwen3:8b")
+  const [ollamaUrl, setOllamaUrl] = useState("http://127.0.0.1:11435")
+
+  const installedModelSet = useMemo(
+    () => new Set(availableOllamaModels),
+    [availableOllamaModels]
+  )
+
+  const visibleRecommendedModels = recommendedModels.filter(
+    (model) => model.languageProfile === selectedLanguageProfile
+  )
 
   useEffect(() => {
-    loadCurrentConfig();
-  }, []);
+    void loadModelState()
+  }, [])
 
-  const loadCurrentConfig = async () => {
+  const loadModelState = async () => {
     try {
-      setIsLoading(true);
-      const config = await window.electronAPI.getCurrentLlmConfig();
-      setCurrentConfig(config);
-      setSelectedProvider(config.provider);
-      
-      if (config.isOllama) {
-        setSelectedOllamaModel(config.model);
-        await loadOllamaModels();
-      }
+      setIsLoading(true)
+      const [config, recommendations, installed, runtime] = await Promise.all([
+        window.electronAPI.getCurrentLlmConfig(),
+        window.electronAPI.getRecommendedLocalModels(),
+        window.electronAPI.getAvailableOllamaModels(),
+        window.electronAPI.getLocalRuntimeStatus()
+      ])
+      setCurrentConfig(config)
+      setRuntimeStatus(runtime as LocalRuntimeStatus)
+      setRecommendedModels(recommendations as RecommendedLocalModel[])
+      setAvailableOllamaModels(installed)
+      setSelectedProvider(config.provider === "gemini" ? "gemini" : "ollama")
+      setSelectedOllamaModel(config.isOllama ? config.model : "qwen3:8b")
+      const activeRecommendation = (recommendations as RecommendedLocalModel[]).find(
+        (model) => model.id === config.model
+      )
+      setSelectedLanguageProfile(activeRecommendation?.languageProfile || "eng_kor")
+      if ((runtime as LocalRuntimeStatus).url) setOllamaUrl((runtime as LocalRuntimeStatus).url)
     } catch (error) {
-      console.error('Error loading current config:', error);
+      console.error("Error loading model configuration:", error)
+      setActionStatus("error")
+      setStatusMessage("Could not load model settings")
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
 
-  const loadOllamaModels = async () => {
+  const refreshInstalledModels = async () => {
     try {
-      const models = await window.electronAPI.getAvailableOllamaModels();
-      setAvailableOllamaModels(models);
-      
-      // Auto-select first model if none selected
-      if (models.length > 0 && !selectedOllamaModel) {
-        setSelectedOllamaModel(models[0]);
-      }
+      const models = await window.electronAPI.getAvailableOllamaModels()
+      setAvailableOllamaModels(models)
+      setActionStatus("success")
+      setStatusMessage("Installed models refreshed")
     } catch (error) {
-      console.error('Error loading Ollama models:', error);
-      setAvailableOllamaModels([]);
+      setActionStatus("error")
+      setStatusMessage(String(error))
     }
-  };
+  }
 
-  const testConnection = async () => {
+  const setupSidekickLocal = async () => {
+    setActionStatus("working")
+    setStatusMessage("Setting up Sidekick Local")
+    const runtime = (await window.electronAPI.setupLocalRuntime()) as LocalRuntimeStatus
+    setRuntimeStatus(runtime)
+    if (!runtime.running) {
+      setActionStatus("error")
+      setStatusMessage(runtime.message || "Local engine setup failed")
+      return null
+    }
+
+    setOllamaUrl(runtime.url)
+    const result = await window.electronAPI.switchToOllama(selectedOllamaModel, runtime.url)
+    if (!result.success) {
+      setActionStatus("error")
+      setStatusMessage(result.error || "Could not connect to Sidekick Local")
+      return null
+    }
+
+    return runtime
+  }
+
+  const downloadModel = async (model: string) => {
     try {
-      setConnectionStatus('testing');
-      const result = await window.electronAPI.testLlmConnection();
-      setConnectionStatus(result.success ? 'success' : 'error');
+      setSelectedProvider("ollama")
+      setSelectedOllamaModel(model)
+      setActionStatus("working")
+      setStatusMessage("Preparing Sidekick Local")
+      const runtime = await setupSidekickLocal()
+      if (!runtime) return
+
+      await window.electronAPI.switchToOllama(model, runtime.url)
+      setStatusMessage(`Downloading ${model}`)
+      const result = await window.electronAPI.pullOllamaModel(model)
       if (!result.success) {
-        setErrorMessage(result.error || 'Unknown error');
+        setActionStatus("error")
+        setStatusMessage(result.error || "Download failed")
+        return
       }
+      await refreshInstalledModels()
+      setActionStatus("success")
+      setStatusMessage(`${model} downloaded`)
     } catch (error) {
-      setConnectionStatus('error');
-      setErrorMessage(String(error));
+      setActionStatus("error")
+      setStatusMessage(String(error))
     }
-  };
+  }
 
-  const handleProviderSwitch = async () => {
+  const applyModel = async () => {
     try {
-      setConnectionStatus('testing');
-      let result;
-      
-      if (selectedProvider === 'ollama') {
-        result = await window.electronAPI.switchToOllama(selectedOllamaModel, ollamaUrl);
+      setActionStatus("working")
+      setStatusMessage("Applying model")
+      let result
+      if (selectedProvider === "ollama") {
+        const runtime = await setupSidekickLocal()
+        if (!runtime) return
+        result = await window.electronAPI.switchToOllama(selectedOllamaModel, runtime.url)
       } else {
-        result = await window.electronAPI.switchToGemini(geminiApiKey || undefined);
+        result = await window.electronAPI.switchToGemini(geminiApiKey || undefined)
       }
 
-      if (result.success) {
-        await loadCurrentConfig();
-        setConnectionStatus('success');
-        onModelChange?.(selectedProvider, selectedProvider === 'ollama' ? selectedOllamaModel : 'gemini-2.0-flash');
-        // Auto-open chat window after successful model change
-        setTimeout(() => {
-          onChatOpen?.();
-        }, 500);
-      } else {
-        setConnectionStatus('error');
-        setErrorMessage(result.error || 'Switch failed');
+      if (!result.success) {
+        setActionStatus("error")
+        setStatusMessage(result.error || "Model switch failed")
+        return
       }
+
+      await loadModelState()
+      setActionStatus("success")
+      setStatusMessage("Model applied")
+      onModelChange?.(
+        selectedProvider,
+        selectedProvider === "ollama" ? selectedOllamaModel : "gemini-2.0-flash"
+      )
+      setTimeout(() => onChatOpen?.(), 300)
     } catch (error) {
-      setConnectionStatus('error');
-      setErrorMessage(String(error));
+      setActionStatus("error")
+      setStatusMessage(String(error))
     }
-  };
+  }
 
-  const getStatusColor = () => {
-    switch (connectionStatus) {
-      case 'testing': return 'text-yellow-600';
-      case 'success': return 'text-green-600';
-      case 'error': return 'text-red-600';
-      default: return 'text-gray-600';
+  const unloadLocalModel = async () => {
+    try {
+      setActionStatus("working")
+      setStatusMessage("Unloading local model")
+      const result = await window.electronAPI.unloadOllamaModel()
+      setActionStatus(result.success ? "success" : "error")
+      setStatusMessage(result.success ? "Local model unloaded" : result.error || "Unload failed")
+    } catch (error) {
+      setActionStatus("error")
+      setStatusMessage(String(error))
     }
-  };
+  }
 
-  const getStatusText = () => {
-    switch (connectionStatus) {
-      case 'testing': return 'Testing connection...';
-      case 'success': return 'Connected successfully';
-      case 'error': return `Error: ${errorMessage}`;
-      default: return 'Ready';
+  const selectLanguageProfile = (languageProfile: RecommendedLocalModel["languageProfile"]) => {
+    setSelectedLanguageProfile(languageProfile)
+    const defaultModel =
+      recommendedModels.find(
+        (model) => model.languageProfile === languageProfile && model.tier === "default"
+      ) ||
+      recommendedModels.find((model) => model.languageProfile === languageProfile)
+    if (defaultModel) {
+      setSelectedProvider("ollama")
+      setSelectedOllamaModel(defaultModel.id)
     }
-  };
+  }
+
+  const statusClass = {
+    idle: "text-zinc-500",
+    working: "text-amber-700",
+    success: "text-emerald-700",
+    error: "text-rose-700"
+  }[actionStatus]
+
+  const renderRecommendation = (model: RecommendedLocalModel) => {
+    const isInstalled = installedModelSet.has(model.id)
+    const isSelected = selectedProvider === "ollama" && selectedOllamaModel === model.id
+
+    return (
+      <button
+        type="button"
+        key={model.id}
+        onClick={() => {
+          setSelectedProvider("ollama")
+          setSelectedOllamaModel(model.id)
+        }}
+        className={`interactive w-full rounded-md border p-3 text-left transition ${
+          isSelected
+            ? "border-cyan-400/70 bg-cyan-500/15"
+            : "border-white/20 bg-white/30 hover:bg-white/45"
+        }`}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[13px] font-semibold text-zinc-900">{model.name}</span>
+              <span className="rounded border border-zinc-300/70 bg-white/50 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
+                {tierLabels[model.tier]}
+              </span>
+            </div>
+            <div className="mt-1 text-[11px] text-zinc-600">
+              {languageLabels[model.languageProfile]} · {model.size} · {model.context}
+            </div>
+          </div>
+          <span className={`shrink-0 rounded px-2 py-1 text-[11px] ${isInstalled ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
+            {isInstalled ? "Installed" : "Not installed"}
+          </span>
+        </div>
+        <p className="mt-2 text-[11px] leading-4 text-zinc-700">{model.notes}</p>
+        {!isInstalled && (
+          <div className="mt-2">
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(event) => {
+                event.stopPropagation()
+                void downloadModel(model.id)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void downloadModel(model.id)
+                }
+              }}
+              className="interactive inline-flex rounded-md bg-zinc-800 px-2 py-1 text-[11px] text-white hover:bg-zinc-700"
+            >
+              Download in app
+            </span>
+          </div>
+        )}
+      </button>
+    )
+  }
 
   if (isLoading) {
     return (
-      <div className="p-4 bg-white/20 backdrop-blur-md rounded-lg border border-white/30">
-        <div className="animate-pulse text-sm text-gray-600">Loading model configuration...</div>
+      <div className="rounded-lg border border-white/30 bg-white/20 p-4 text-sm text-zinc-600 backdrop-blur-md">
+        Loading model settings
       </div>
-    );
+    )
   }
 
   return (
-    <div className="p-4 bg-white/20 backdrop-blur-md rounded-lg border border-white/30 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-800">AI Model Selection</h3>
-        <div className={`text-xs ${getStatusColor()}`}>
-          {getStatusText()}
+    <div className="space-y-4 rounded-lg border border-white/30 bg-white/20 p-4 backdrop-blur-md">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-zinc-900">Local Model Setup</h3>
+          <p className="mt-1 text-[11px] leading-4 text-zinc-600">
+            Defaults are tuned for English + Korean. Download once, then switch locally.
+          </p>
+        </div>
+        <div className={`max-w-[180px] text-right text-[11px] leading-4 ${statusClass}`}>
+          {statusMessage}
         </div>
       </div>
 
-      {/* Current Status */}
       {currentConfig && (
-        <div className="text-xs text-gray-600 bg-white/40 p-2 rounded">
-          Current: {currentConfig.provider === 'ollama' ? '🏠' : '☁️'} {currentConfig.model}
+        <div className="rounded-md border border-white/30 bg-white/40 p-2 text-[12px] text-zinc-700">
+          Current: {currentConfig.provider} · {currentConfig.model}
         </div>
       )}
 
-      {/* Provider Selection */}
-      <div className="space-y-2">
-        <label className="text-xs font-medium text-gray-700">Provider</label>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setSelectedProvider('gemini')}
-            className={`flex-1 px-3 py-2 rounded text-xs transition-all ${
-              selectedProvider === 'gemini'
-                ? 'bg-blue-500 text-white shadow-md'
-                : 'bg-white/40 text-gray-700 hover:bg-white/60'
-            }`}
-          >
-            ☁️ Gemini (Cloud)
-          </button>
-          <button
-            onClick={() => setSelectedProvider('ollama')}
-            className={`flex-1 px-3 py-2 rounded text-xs transition-all ${
-              selectedProvider === 'ollama'
-                ? 'bg-green-500 text-white shadow-md'
-                : 'bg-white/40 text-gray-700 hover:bg-white/60'
-            }`}
-          >
-            🏠 Ollama (Local)
-          </button>
-        </div>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => setSelectedProvider("ollama")}
+          className={`interactive rounded-md border px-3 py-2 text-[12px] transition ${
+            selectedProvider === "ollama"
+              ? "border-cyan-400/70 bg-cyan-500/20 text-zinc-900"
+              : "border-white/30 bg-white/35 text-zinc-700"
+          }`}
+        >
+          Local
+        </button>
+        <button
+          type="button"
+          onClick={() => setSelectedProvider("gemini")}
+          className={`interactive rounded-md border px-3 py-2 text-[12px] transition ${
+            selectedProvider === "gemini"
+              ? "border-cyan-400/70 bg-cyan-500/20 text-zinc-900"
+              : "border-white/30 bg-white/35 text-zinc-700"
+          }`}
+        >
+          Cloud
+        </button>
       </div>
 
-      {/* Provider-specific settings */}
-      {selectedProvider === 'gemini' ? (
-        <div className="space-y-2">
-          <label className="text-xs font-medium text-gray-700">Gemini API Key (optional if already set)</label>
-          <input
-            type="password"
-            placeholder="Enter API key to update..."
-            value={geminiApiKey}
-            onChange={(e) => setGeminiApiKey(e.target.value)}
-            className="w-full px-3 py-2 text-xs bg-white/40 border border-white/60 rounded focus:outline-none focus:ring-2 focus:ring-blue-400/60"
-          />
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <div>
-            <label className="text-xs font-medium text-gray-700">Ollama URL</label>
-            <input
-              type="url"
-              value={ollamaUrl}
-              onChange={(e) => setOllamaUrl(e.target.value)}
-              className="w-full px-3 py-2 text-xs bg-white/40 border border-white/60 rounded focus:outline-none focus:ring-2 focus:ring-green-400/60"
-            />
-          </div>
-          
-          <div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-medium text-gray-700">Model</label>
-              <button
-                onClick={loadOllamaModels}
-                className="px-2 py-1 text-xs bg-white/60 hover:bg-white/80 rounded transition-all"
-                title="Refresh models"
-              >
-                🔄
-              </button>
+      {selectedProvider === "ollama" ? (
+        <div className="space-y-3">
+          <div className="rounded-md border border-white/30 bg-white/35 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-semibold text-zinc-800">Sidekick Local Engine</div>
+                <div className="mt-1 text-[11px] leading-4 text-zinc-600">
+                  {runtimeStatus?.message || "Checking local engine"}
+                </div>
+                <div className="mt-1 text-[10px] text-zinc-500">
+                  {runtimeStatus?.running
+                    ? `Running from ${runtimeStatus.source}`
+                    : "Bundled runtime is used when available; otherwise Sidekick downloads its own copy."}
+                </div>
+              </div>
+              <span className={`shrink-0 rounded px-2 py-1 text-[11px] ${
+                runtimeStatus?.running
+                  ? "bg-emerald-100 text-emerald-700"
+                  : runtimeStatus?.installed
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-zinc-100 text-zinc-600"
+              }`}>
+                {runtimeStatus?.running ? "Ready" : runtimeStatus?.installed ? "Stopped" : "Setup needed"}
+              </span>
             </div>
-            
-            {availableOllamaModels.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => void setupSidekickLocal()}
+              disabled={actionStatus === "working"}
+              className="interactive mt-3 rounded-md bg-zinc-800 px-3 py-2 text-xs text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
+            >
+              {runtimeStatus?.installed ? "Start Sidekick Local" : "Set up Sidekick Local"}
+            </button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-zinc-700">Languages</div>
+            <div className="grid grid-cols-2 gap-2">
+              {(["eng_kor", "english"] as RecommendedLocalModel["languageProfile"][]).map((languageProfile) => (
+                <button
+                  key={languageProfile}
+                  type="button"
+                  onClick={() => selectLanguageProfile(languageProfile)}
+                  className={`interactive rounded-md border px-3 py-2 text-[12px] transition ${
+                    selectedLanguageProfile === languageProfile
+                      ? "border-cyan-400/70 bg-cyan-500/20 text-zinc-900"
+                      : "border-white/30 bg-white/35 text-zinc-700"
+                  }`}
+                >
+                  {languageLabels[languageProfile]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-zinc-700">
+              Recommended models for {languageLabels[selectedLanguageProfile]}
+            </div>
+            {visibleRecommendedModels.map(renderRecommendation)}
+          </div>
+
+          {availableOllamaModels.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-zinc-700">Installed models</label>
               <select
                 value={selectedOllamaModel}
-                onChange={(e) => setSelectedOllamaModel(e.target.value)}
-                className="w-full px-3 py-2 text-xs bg-white/40 border border-white/60 rounded focus:outline-none focus:ring-2 focus:ring-green-400/60"
+                onChange={(event) => {
+                  setSelectedProvider("ollama")
+                  setSelectedOllamaModel(event.target.value)
+                }}
+                className="interactive mt-1 w-full rounded-md border border-white/50 bg-white/40 px-3 py-2 text-xs text-zinc-800 outline-none focus:border-cyan-400/70"
               >
                 {availableOllamaModels.map((model) => (
                   <option key={model} value={model}>
@@ -219,41 +418,54 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({ onModelChange, onChatOpen
                   </option>
                 ))}
               </select>
-            ) : (
-              <div className="text-xs text-gray-600 bg-yellow-100/60 p-2 rounded">
-                No Ollama models found. Make sure Ollama is running and models are installed.
-              </div>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div>
+          <label className="text-xs font-medium text-zinc-700">Gemini API key</label>
+          <input
+            type="password"
+            placeholder="Optional if already set in environment"
+            value={geminiApiKey}
+            onChange={(event) => setGeminiApiKey(event.target.value)}
+            className="interactive mt-1 w-full rounded-md border border-white/50 bg-white/40 px-3 py-2 text-xs text-zinc-800 outline-none focus:border-cyan-400/70"
+          />
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex gap-2 pt-2">
+      <div className="flex flex-wrap gap-2 pt-1">
         <button
-          onClick={handleProviderSwitch}
-          disabled={connectionStatus === 'testing'}
-          className="flex-1 px-3 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white text-xs rounded transition-all shadow-md"
+          type="button"
+          onClick={applyModel}
+          disabled={actionStatus === "working"}
+          className="interactive rounded-md bg-cyan-600 px-3 py-2 text-xs text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:bg-zinc-400"
         >
-          {connectionStatus === 'testing' ? 'Switching...' : 'Apply Changes'}
+          {actionStatus === "working" ? "Working" : "Apply"}
         </button>
-        
         <button
-          onClick={testConnection}
-          disabled={connectionStatus === 'testing'}
-          className="px-3 py-2 bg-gray-500 hover:bg-gray-600 disabled:bg-gray-400 text-white text-xs rounded transition-all shadow-md"
+          type="button"
+          onClick={refreshInstalledModels}
+          disabled={actionStatus === "working"}
+          className="interactive rounded-md bg-zinc-700 px-3 py-2 text-xs text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
         >
-          Test
+          Refresh
+        </button>
+        <button
+          type="button"
+          onClick={unloadLocalModel}
+          disabled={actionStatus === "working"}
+          className="interactive rounded-md border border-zinc-400/60 bg-white/35 px-3 py-2 text-xs text-zinc-800 transition hover:bg-white/55 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Unload when idle
         </button>
       </div>
 
-      {/* Help text */}
-      <div className="text-xs text-gray-600 space-y-1">
-        <div>💡 <strong>Gemini:</strong> Fast, cloud-based, requires API key</div>
-        <div>💡 <strong>Ollama:</strong> Private, local, requires Ollama installation</div>
-      </div>
+      <p className="text-[11px] leading-4 text-zinc-600">
+        Complete packaged builds should embed a local runtime and use this same recommendation list as the download catalog.
+      </p>
     </div>
-  );
-};
+  )
+}
 
-export default ModelSelector;
+export default ModelSelector

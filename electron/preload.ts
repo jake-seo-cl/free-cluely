@@ -22,6 +22,7 @@ interface ElectronAPI {
   onProcessingNoScreenshots: (callback: () => void) => () => void
   onProblemExtracted: (callback: (data: any) => void) => () => void
   onSolutionSuccess: (callback: (data: any) => void) => () => void
+  onMeetingShortcut: (callback: (action: string) => void) => () => void
 
   onUnauthorized: (callback: () => void) => () => void
   onDebugError: (callback: (error: string) => void) => () => void
@@ -31,13 +32,21 @@ interface ElectronAPI {
   moveWindowUp: () => Promise<void>
   moveWindowDown: () => Promise<void>
   analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
+  analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   analyzeImageFile: (path: string) => Promise<void>
+  readClipboardText: () => Promise<string>
   quitApp: () => Promise<void>
   
   // LLM Model Management
   getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
   getAvailableOllamaModels: () => Promise<string[]>
+  getRecommendedLocalModels: () => Promise<any[]>
+  getLocalRuntimeStatus: () => Promise<any>
+  setupLocalRuntime: () => Promise<any>
+  startLocalRuntime: () => Promise<any>
+  pullOllamaModel: (model: string) => Promise<{ success: boolean; error?: string }>
+  unloadOllamaModel: () => Promise<{ success: boolean; error?: string }>
   switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
   switchToGemini: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
   testLlmConnection: () => Promise<{ success: boolean; error?: string }>
@@ -164,6 +173,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
       )
     }
   },
+  onMeetingShortcut: (callback: (action: string) => void) => {
+    const subscription = (_: any, action: string) => callback(action)
+    ipcRenderer.on("meeting-shortcut", subscription)
+    return () => {
+      ipcRenderer.removeListener("meeting-shortcut", subscription)
+    }
+  },
   onUnauthorized: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on(PROCESSING_EVENTS.UNAUTHORIZED, subscription)
@@ -176,13 +192,21 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveWindowUp: () => ipcRenderer.invoke("move-window-up"),
   moveWindowDown: () => ipcRenderer.invoke("move-window-down"),
   analyzeAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType),
+  analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-meeting-audio-base64", data, mimeType),
   analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
   analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
+  readClipboardText: () => ipcRenderer.invoke("read-clipboard-text"),
   quitApp: () => ipcRenderer.invoke("quit-app"),
   
   // LLM Model Management
   getCurrentLlmConfig: () => ipcRenderer.invoke("get-current-llm-config"),
   getAvailableOllamaModels: () => ipcRenderer.invoke("get-available-ollama-models"),
+  getRecommendedLocalModels: () => ipcRenderer.invoke("get-recommended-local-models"),
+  getLocalRuntimeStatus: () => ipcRenderer.invoke("get-local-runtime-status"),
+  setupLocalRuntime: () => ipcRenderer.invoke("setup-local-runtime"),
+  startLocalRuntime: () => ipcRenderer.invoke("start-local-runtime"),
+  pullOllamaModel: (model: string) => ipcRenderer.invoke("pull-ollama-model", model),
+  unloadOllamaModel: () => ipcRenderer.invoke("unload-ollama-model"),
   switchToOllama: (model?: string, url?: string) => ipcRenderer.invoke("switch-to-ollama", model, url),
   switchToGemini: (apiKey?: string) => ipcRenderer.invoke("switch-to-gemini", apiKey),
   testLlmConnection: () => ipcRenderer.invoke("test-llm-connection"),

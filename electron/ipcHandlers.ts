@@ -1,6 +1,6 @@
 // ipcHandlers.ts
 
-import { ipcMain, app } from "electron"
+import { ipcMain, app, clipboard } from "electron"
 import { AppState } from "./main"
 
 export function initializeIpcHandlers(appState: AppState): void {
@@ -70,6 +70,10 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
+  ipcMain.handle("read-clipboard-text", async () => {
+    return clipboard.readText("clipboard")
+  })
+
   // IPC handler for analyzing audio from base64 data
   ipcMain.handle("analyze-audio-base64", async (event, data: string, mimeType: string) => {
     try {
@@ -77,6 +81,17 @@ export function initializeIpcHandlers(appState: AppState): void {
       return result
     } catch (error: any) {
       console.error("Error in analyze-audio-base64 handler:", error)
+      throw error
+    }
+  })
+
+  ipcMain.handle("analyze-meeting-audio-base64", async (_event, data: string, mimeType: string) => {
+    try {
+      return appState.processingHelper
+        .getLLMHelper()
+        .analyzeMeetingAudioFromBase64(data, mimeType)
+    } catch (error: any) {
+      console.error("Error in analyze-meeting-audio-base64 handler:", error)
       throw error
     }
   })
@@ -112,6 +127,28 @@ export function initializeIpcHandlers(appState: AppState): void {
       throw error;
     }
   });
+
+  ipcMain.handle("generate-live-meeting-suggestion", async (_event, payload) => {
+    try {
+      return appState.processingHelper
+        .getLLMHelper()
+        .generateLiveMeetingSuggestion(payload)
+    } catch (error: any) {
+      console.error("Error in generate-live-meeting-suggestion handler:", error)
+      throw error
+    }
+  })
+
+  ipcMain.handle("generate-meeting-notes", async (_event, payload) => {
+    try {
+      return appState.processingHelper
+        .getLLMHelper()
+        .generateMeetingNotes(payload)
+    } catch (error: any) {
+      console.error("Error in generate-meeting-notes handler:", error)
+      throw error
+    }
+  })
 
   ipcMain.handle("quit-app", () => {
     app.quit()
@@ -161,6 +198,64 @@ export function initializeIpcHandlers(appState: AppState): void {
     } catch (error: any) {
       console.error("Error getting Ollama models:", error);
       throw error;
+    }
+  });
+
+  ipcMain.handle("get-recommended-local-models", async () => {
+    return appState.processingHelper.getLLMHelper().getRecommendedLocalModels();
+  });
+
+  ipcMain.handle("get-local-runtime-status", async () => {
+    return appState.getLocalRuntimeManager().getStatus();
+  });
+
+  ipcMain.handle("start-local-runtime", async () => {
+    try {
+      return await appState.getLocalRuntimeManager().ensureStarted();
+    } catch (error: any) {
+      console.error("Error starting local runtime:", error);
+      return {
+        installed: false,
+        running: false,
+        source: "missing",
+        url: "",
+        modelDir: "",
+        message: error.message || String(error)
+      };
+    }
+  });
+
+  ipcMain.handle("setup-local-runtime", async () => {
+    try {
+      return await appState.getLocalRuntimeManager().ensureInstalledAndStarted();
+    } catch (error: any) {
+      console.error("Error setting up local runtime:", error);
+      return {
+        installed: false,
+        running: false,
+        source: "missing",
+        url: "",
+        modelDir: "",
+        message: error.message || String(error)
+      };
+    }
+  });
+
+  ipcMain.handle("pull-ollama-model", async (_, model: string) => {
+    try {
+      return await appState.processingHelper.getLLMHelper().pullOllamaModel(model);
+    } catch (error: any) {
+      console.error("Error pulling Ollama model:", error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("unload-ollama-model", async () => {
+    try {
+      return await appState.processingHelper.getLLMHelper().unloadOllamaModel();
+    } catch (error: any) {
+      console.error("Error unloading Ollama model:", error);
+      return { success: false, error: error.message };
     }
   });
 

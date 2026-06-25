@@ -4,6 +4,18 @@ import { WindowHelper } from "./WindowHelper"
 import { ScreenshotHelper } from "./ScreenshotHelper"
 import { ShortcutsHelper } from "./shortcuts"
 import { ProcessingHelper } from "./ProcessingHelper"
+import { LocalRuntimeManager } from "./LocalRuntimeManager"
+
+const TRAY_ICON_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAACXBIWXMAAAsTAAALEwEAmpwYAAABoElEQVR4nO2YvUoDQRRGT6FbaCy00FoQfI8YNWDjT1L5AGphEX8QbLQQTC2WMYWIjyH4CNqJYGxik87GGIuRwVkYQhLYmZ3dWdkDX5Ms2cPdm5s7gZwc75hQyQxbwDoZ4g64JSMsAt9AF1jAc+aAZ0CoPAGzeMgMsAd8aLJh2sAuMI1HVW0CnwNkw8j3btS1xgRAGTgATiyzDcwD1wNkr4CCbVWWgfcRFTFJB1gDLrXXLmxFQ9mfmGWFSg+oAK/ACzBmKxs4qKxQedSk74HTOKpbdiQrgElNWj7B/TiEjx0Ko/aHB63SG1hy7liYvkr31BfRS+FgiHTH5tfOpXCx71669I6Pwi2gNKTSZz4KixGR982FRVaEv4AGUI+YhlrSExfeNP0w/vaGxIVtVr+pNITlCdeUahrCXXUaiLq0N9Pq4cxNCfGfx1ojQht4M9YqaQsXHI0yEYfwUQxjrWogfGgqvGo51qKMMj3ypG5EoPbWJCfEGzCOBSWH/0uIvsgz3ZKNrC7dSqCyRWJEtscKUDNYLesjUlM9a9UGOTk5uOMXWe648d10Ft4AAAAASUVORK5CYII="
+
+function createTrayImage() {
+  const image = nativeImage
+    .createFromBuffer(Buffer.from(TRAY_ICON_PNG, "base64"))
+    .resize({ width: 18, height: 18 })
+  image.setTemplateImage(true)
+  return image
+}
 
 export class AppState {
   private static instance: AppState | null = null
@@ -12,6 +24,7 @@ export class AppState {
   private screenshotHelper: ScreenshotHelper
   public shortcutsHelper: ShortcutsHelper
   public processingHelper: ProcessingHelper
+  public localRuntimeManager: LocalRuntimeManager
   private tray: Tray | null = null
 
   // View management
@@ -55,6 +68,9 @@ export class AppState {
     // Initialize ProcessingHelper
     this.processingHelper = new ProcessingHelper(this)
 
+    // Initialize managed local model runtime
+    this.localRuntimeManager = new LocalRuntimeManager()
+
     // Initialize ShortcutsHelper
     this.shortcutsHelper = new ShortcutsHelper(this)
   }
@@ -86,6 +102,10 @@ export class AppState {
 
   public getScreenshotHelper(): ScreenshotHelper {
     return this.screenshotHelper
+  }
+
+  public getLocalRuntimeManager(): LocalRuntimeManager {
+    return this.localRuntimeManager
   }
 
   public getProblemInfo(): any {
@@ -179,34 +199,41 @@ export class AppState {
   }
 
   public centerAndShowWindow(): void {
+    if (this.windowHelper.getMainWindow() === null) {
+      this.windowHelper.createWindow()
+      setTimeout(() => this.windowHelper.centerAndShowWindow(), 300)
+      return
+    }
+
     this.windowHelper.centerAndShowWindow()
   }
 
   public createTray(): void {
-    // Create a simple tray icon
-    const image = nativeImage.createEmpty()
-    
-    // Try to use a system template image for better integration
-    let trayImage = image
-    try {
-      // Create a minimal icon - just use an empty image and set the title
-      trayImage = nativeImage.createFromBuffer(Buffer.alloc(0))
-    } catch (error) {
-      console.log("Using empty tray image")
-      trayImage = nativeImage.createEmpty()
-    }
-    
+    const trayImage = createTrayImage()
     this.tray = new Tray(trayImage)
     
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Show Interview Coder',
+        label: 'Sidekick Notes Live',
+        enabled: false
+      },
+      {
+        type: 'separator'
+      },
+      {
+        label: 'Show Overlay',
         click: () => {
           this.centerAndShowWindow()
         }
       },
       {
-        label: 'Toggle Window',
+        label: 'Hide Overlay',
+        click: () => {
+          this.hideMainWindow()
+        }
+      },
+      {
+        label: 'Toggle Overlay',
         click: () => {
           this.toggleMainWindow()
         }
@@ -244,15 +271,18 @@ export class AppState {
       }
     ])
     
-    this.tray.setToolTip('Interview Coder - Press Cmd+Shift+Space to show')
+    this.tray.setToolTip('Sidekick Notes is live - click for overlay')
     this.tray.setContextMenu(contextMenu)
     
-    // Set a title for macOS (will appear in menu bar)
-    if (process.platform === 'darwin') {
-      this.tray.setTitle('IC')
-    }
-    
-    // Double-click to show window
+    // Make the menu-bar item itself act like a pull-up control.
+    this.tray.on('click', () => {
+      this.centerAndShowWindow()
+    })
+
+    this.tray.on('right-click', () => {
+      this.tray?.popUpContextMenu()
+    })
+
     this.tray.on('double-click', () => {
       this.centerAndShowWindow()
     })
@@ -276,16 +306,25 @@ async function initializeApp() {
 
   app.whenReady().then(() => {
     console.log("App is ready")
+    if (process.platform === "darwin") {
+      app.setActivationPolicy("accessory")
+    }
     appState.createWindow()
     appState.createTray()
     // Register global shortcuts using ShortcutsHelper
     appState.shortcutsHelper.registerGlobalShortcuts()
   })
 
+  app.on("before-quit", () => {
+    void appState.getLocalRuntimeManager().stop()
+  })
+
   app.on("activate", () => {
     console.log("App activated")
     if (appState.getMainWindow() === null) {
       appState.createWindow()
+    } else {
+      appState.centerAndShowWindow()
     }
   })
 
@@ -296,7 +335,6 @@ async function initializeApp() {
     }
   })
 
-  app.dock?.hide() // Hide dock icon (optional)
   app.commandLine.appendSwitch("disable-background-timer-throttling")
 }
 

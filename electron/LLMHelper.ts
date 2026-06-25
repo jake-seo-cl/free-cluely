@@ -6,19 +6,78 @@ interface OllamaResponse {
   done: boolean
 }
 
+export interface RecommendedLocalModel {
+  id: string
+  name: string
+  languageProfile: "eng_kor" | "english"
+  tier: "default" | "light" | "quality"
+  size: string
+  context: string
+  notes: string
+}
+
+const RECOMMENDED_LOCAL_MODELS: RecommendedLocalModel[] = [
+  {
+    id: "qwen3:8b",
+    name: "Qwen3 8B",
+    languageProfile: "eng_kor",
+    tier: "default",
+    size: "5.2GB",
+    context: "40K",
+    notes: "Default for English + Korean meetings. Best balance of multilingual quality and local performance."
+  },
+  {
+    id: "qwen3:4b",
+    name: "Qwen3 4B",
+    languageProfile: "eng_kor",
+    tier: "light",
+    size: "2.5GB",
+    context: "256K",
+    notes: "Lightweight English + Korean option for laptops where battery and memory matter more."
+  },
+  {
+    id: "qwen3:14b",
+    name: "Qwen3 14B",
+    languageProfile: "eng_kor",
+    tier: "quality",
+    size: "9.3GB",
+    context: "40K",
+    notes: "Higher quality English + Korean option for Apple Silicon Pro/Max or machines with more RAM."
+  },
+  {
+    id: "gemma3:4b",
+    name: "Gemma 3 4B",
+    languageProfile: "english",
+    tier: "default",
+    size: "3.3GB",
+    context: "128K",
+    notes: "English-first default with long context and low footprint."
+  },
+  {
+    id: "gemma3:1b",
+    name: "Gemma 3 1B",
+    languageProfile: "english",
+    tier: "light",
+    size: "815MB",
+    context: "32K",
+    notes: "Very low-resource English option for idle-friendly capture and quick summaries."
+  }
+]
+
 export class LLMHelper {
   private model: GenerativeModel | null = null
-  private readonly systemPrompt = `You are Wingman AI, a helpful, proactive assistant for any kind of problem or situation (not just coding). For any user input, analyze the situation, provide a clear problem statement, relevant context, and suggest several possible responses or actions the user could take next. Always explain your reasoning. Present your suggestions as a list of options or next steps.`
+  private readonly systemPrompt = `You are Sidekick Notes, a private meeting and screen assistant. Keep responses concise, evidence-grounded, and useful in the moment. For any user input, identify the situation, summarize relevant context, and suggest practical next steps. Flag uncertainty instead of inventing facts.`
   private useOllama: boolean = false
-  private ollamaModel: string = "llama3.2"
+  private ollamaModel: string = "qwen3:8b"
   private ollamaUrl: string = "http://localhost:11434"
+  private ollamaKeepAlive: string = "30s"
 
   constructor(apiKey?: string, useOllama: boolean = false, ollamaModel?: string, ollamaUrl?: string) {
     this.useOllama = useOllama
     
     if (useOllama) {
       this.ollamaUrl = ollamaUrl || "http://localhost:11434"
-      this.ollamaModel = ollamaModel || "gemma:latest" // Default fallback
+      this.ollamaModel = ollamaModel || "qwen3:8b"
       console.log(`[LLMHelper] Using Ollama with model: ${this.ollamaModel}`)
       
       // Auto-detect and use first available model if specified model doesn't exist
@@ -50,6 +109,35 @@ export class LLMHelper {
     return text;
   }
 
+  private parseJsonResponse<T>(text: string, fallback: T): T {
+    const cleaned = this.cleanJsonResponse(text)
+    try {
+      return JSON.parse(cleaned) as T
+    } catch {
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/)
+      if (!jsonMatch) return fallback
+      try {
+        return JSON.parse(jsonMatch[0]) as T
+      } catch {
+        return fallback
+      }
+    }
+  }
+
+  private async generateText(prompt: string): Promise<string> {
+    if (this.useOllama) {
+      return this.callOllama(prompt)
+    }
+
+    if (!this.model) {
+      throw new Error("No Gemini model configured")
+    }
+
+    const result = await this.model.generateContent(prompt)
+    const response = await result.response
+    return response.text()
+  }
+
   private async callOllama(prompt: string): Promise<string> {
     try {
       const response = await fetch(`${this.ollamaUrl}/api/generate`, {
@@ -61,6 +149,7 @@ export class LLMHelper {
           model: this.ollamaModel,
           prompt: prompt,
           stream: false,
+          keep_alive: this.ollamaKeepAlive,
           options: {
             temperature: 0.7,
             top_p: 0.9,
@@ -216,6 +305,10 @@ export class LLMHelper {
 
   public async analyzeAudioFromBase64(data: string, mimeType: string) {
     try {
+      if (!this.model) {
+        throw new Error("Audio analysis requires Gemini. Switch to Gemini or paste transcript text manually.")
+      }
+
       const audioPart = {
         inlineData: {
           data,
@@ -231,6 +324,167 @@ export class LLMHelper {
       console.error("Error analyzing audio from base64:", error);
       throw error;
     }
+  }
+
+  public async analyzeMeetingAudioFromBase64(data: string, mimeType: string) {
+    const fallback = {
+      transcript: "",
+      summary: "Audio was received, but the model did not return structured meeting context.",
+      actionItems: [] as string[],
+      questions: [] as string[],
+      confidence: "low" as const,
+      sourceBasis: "uncertain" as const,
+      timestamp: Date.now()
+    }
+
+    try {
+      if (!this.model) {
+        throw new Error("Meeting audio analysis requires Gemini. Switch to Gemini or paste transcript text manually.")
+      }
+
+      const audioPart = {
+        inlineData: {
+          data,
+          mimeType
+        }
+      }
+      const prompt = `You are a private live meeting copilot. Analyze this short audio chunk from the user's current meeting.
+
+Return ONLY valid JSON with this exact shape:
+{
+  "transcript": "Best-effort transcript of what was said, preserving names if clear.",
+  "summary": "One concise sentence about the useful meeting context in this chunk.",
+  "actionItems": ["Concrete action item heard in this chunk"],
+  "questions": ["Question or objection heard in this chunk"],
+  "confidence": "high" | "medium" | "low",
+  "sourceBasis": "meeting" | "uncertain",
+  "timestamp": 0
+}
+
+Rules:
+- Do not invent personal facts, company facts, owners, or due dates.
+- If audio is unclear, keep transcript short and set confidence to "low".
+- If no action items or questions were heard, return empty arrays.`
+
+      const result = await this.model.generateContent([prompt, audioPart])
+      const response = await result.response
+      const parsed = this.parseJsonResponse(response.text(), fallback)
+      return { ...fallback, ...parsed, timestamp: Date.now() }
+    } catch (error) {
+      console.error("Error analyzing meeting audio:", error)
+      throw error
+    }
+  }
+
+  public async generateLiveMeetingSuggestion(payload: {
+    trigger: string
+    mode: string
+    title: string
+    participants: string
+    context: string
+    transcript: string
+    currentSummary: string
+  }) {
+    const fallback = {
+      answer: "I do not have enough reliable context yet. Ask a clarifying question before answering.",
+      confidence: "low" as const,
+      sourceBasis: "uncertain" as const,
+      citations: [] as string[],
+      followUpQuestions: ["Could you clarify the most important constraint or decision you want from this discussion?"],
+      riskFlags: ["Low meeting context"],
+      timestamp: Date.now()
+    }
+
+    const prompt = `You are a private, consent-aware live meeting copilot. Help the user during a real meeting without deception.
+
+Meeting mode: ${payload.mode}
+Meeting title: ${payload.title || "Untitled meeting"}
+Participants: ${payload.participants || "Unknown"}
+User context:
+${payload.context || "No user context provided."}
+
+Current meeting summary:
+${payload.currentSummary || "No summary yet."}
+
+Recent transcript:
+${payload.transcript || "No transcript yet."}
+
+User trigger: ${payload.trigger}
+
+Return ONLY valid JSON with this exact shape:
+{
+  "answer": "A concise, natural response the user could say aloud. Use 2-4 short bullets if useful.",
+  "confidence": "high" | "medium" | "low",
+  "sourceBasis": "meeting" | "user_context" | "general_knowledge" | "uncertain",
+  "citations": ["Short quote or timestamp-style reference from transcript/context"],
+  "followUpQuestions": ["Useful question the user can ask next"],
+  "riskFlags": ["Any uncertainty, missing context, or fact that needs verification"],
+  "timestamp": 0
+}
+
+Rules:
+- Never fabricate user credentials, prior work, customer facts, pricing, legal claims, or commitments.
+- If the transcript does not support a confident answer, say what to ask next instead.
+- For sales mode, focus on objection handling and next steps.
+- For customer_success mode, focus on risk, ownership, and resolution.
+- For recruiting mode, focus on evidence, role fit, and structured evaluation.
+- Keep the answer glanceable and ready to say aloud.`
+
+    const text = await this.generateText(prompt)
+    const parsed = this.parseJsonResponse(text, fallback)
+    return { ...fallback, ...parsed, timestamp: Date.now() }
+  }
+
+  public async generateMeetingNotes(payload: {
+    mode: string
+    title: string
+    participants: string
+    context: string
+    transcript: string
+  }) {
+    const fallback = {
+      summary: "No reliable meeting summary is available yet.",
+      decisions: [] as string[],
+      actionItems: [] as Array<{ task: string; owner: string; dueDate: string; citation: string }>,
+      risks: [] as string[],
+      followUpDraft: "",
+      citations: [] as string[],
+      timestamp: Date.now()
+    }
+
+    const prompt = `You are Sidekick Notes, a private meeting-notes assistant. Produce accurate, share-ready notes from the transcript.
+
+Meeting mode: ${payload.mode}
+Meeting title: ${payload.title || "Untitled meeting"}
+Participants: ${payload.participants || "Unknown"}
+User context:
+${payload.context || "No user context provided."}
+
+Transcript:
+${payload.transcript || "No transcript provided."}
+
+Return ONLY valid JSON with this exact shape:
+{
+  "summary": "Short paragraph with the main outcome.",
+  "decisions": ["Decision made in the meeting"],
+  "actionItems": [
+    { "task": "Concrete next step", "owner": "Owner or Unassigned", "dueDate": "Due date or Not specified", "citation": "Supporting quote or reference" }
+  ],
+  "risks": ["Open concern, objection, blocker, or ambiguity"],
+  "followUpDraft": "Brief follow-up email the user can edit before sending.",
+  "citations": ["Important supporting transcript quote"],
+  "timestamp": 0
+}
+
+Rules:
+- Do not invent decisions, owners, dates, or commitments.
+- Use "Unassigned" and "Not specified" when missing.
+- Keep the follow-up draft professional and editable.
+- Prefer fewer, higher-confidence bullets over exhaustive weak notes.`
+
+    const text = await this.generateText(prompt)
+    const parsed = this.parseJsonResponse(text, fallback)
+    return { ...fallback, ...parsed, timestamp: Date.now() }
   }
 
   public async analyzeImageFile(imagePath: string) {
@@ -279,8 +533,6 @@ export class LLMHelper {
   }
 
   public async getOllamaModels(): Promise<string[]> {
-    if (!this.useOllama) return [];
-    
     try {
       const response = await fetch(`${this.ollamaUrl}/api/tags`);
       if (!response.ok) throw new Error('Failed to fetch models');
@@ -290,6 +542,67 @@ export class LLMHelper {
     } catch (error) {
       console.error("[LLMHelper] Error fetching Ollama models:", error);
       return [];
+    }
+  }
+
+  public getRecommendedLocalModels(): RecommendedLocalModel[] {
+    return RECOMMENDED_LOCAL_MODELS
+  }
+
+  public async pullOllamaModel(model: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const available = await this.checkOllamaAvailable()
+      if (!available) {
+        return { success: false, error: `Ollama is not available at ${this.ollamaUrl}` }
+      }
+
+      const response = await fetch(`${this.ollamaUrl}/api/pull`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          stream: false
+        })
+      })
+
+      if (!response.ok) {
+        return { success: false, error: `Download failed: ${response.status} ${response.statusText}` }
+      }
+
+      return { success: true }
+    } catch (error: any) {
+      return { success: false, error: error.message || String(error) }
+    }
+  }
+
+  public async unloadOllamaModel(): Promise<{ success: boolean; error?: string }> {
+    try {
+      if (!this.useOllama) return { success: true }
+      const available = await this.checkOllamaAvailable()
+      if (!available) return { success: true }
+
+      const response = await fetch(`${this.ollamaUrl}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: this.ollamaModel,
+          prompt: "",
+          stream: false,
+          keep_alive: 0
+        })
+      })
+
+      if (!response.ok) {
+        return { success: false, error: `Unload failed: ${response.status} ${response.statusText}` }
+      }
+
+      return { success: true }
+    } catch (error: any) {
+      return { success: false, error: error.message || String(error) }
     }
   }
 
@@ -357,4 +670,4 @@ export class LLMHelper {
       return { success: false, error: error.message };
     }
   }
-} 
+}

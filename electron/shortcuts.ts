@@ -8,6 +8,13 @@ export class ShortcutsHelper {
     this.appState = appState
   }
 
+  private emitMeetingShortcut(action: string): void {
+    const mainWindow = this.appState.getMainWindow()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("meeting-shortcut", action)
+    }
+  }
+
   public registerGlobalShortcuts(): void {
     // Add global shortcut to show/center window
     globalShortcut.register("CommandOrControl+Shift+Space", () => {
@@ -33,7 +40,19 @@ export class ShortcutsHelper {
     })
 
     globalShortcut.register("CommandOrControl+Enter", async () => {
-      await this.appState.processingHelper.processScreenshots()
+      this.emitMeetingShortcut("manual_answer")
+    })
+
+    globalShortcut.register("CommandOrControl+Shift+S", async () => {
+      this.emitMeetingShortcut("recap")
+    })
+
+    globalShortcut.register("CommandOrControl+Shift+Q", async () => {
+      this.emitMeetingShortcut("follow_up_question")
+    })
+
+    globalShortcut.register("CommandOrControl+Shift+A", async () => {
+      this.emitMeetingShortcut("action_items")
     })
 
     globalShortcut.register("CommandOrControl+R", () => {
@@ -82,7 +101,7 @@ export class ShortcutsHelper {
       this.appState.toggleMainWindow()
       // If window exists and we're showing it, bring it to front
       const mainWindow = this.appState.getMainWindow()
-      if (mainWindow && !this.appState.isVisible()) {
+      if (mainWindow && this.appState.isVisible()) {
         // Force the window to the front on macOS
         if (process.platform === "darwin") {
           mainWindow.setAlwaysOnTop(true, "normal")
