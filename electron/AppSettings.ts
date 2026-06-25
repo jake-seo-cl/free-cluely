@@ -22,12 +22,15 @@ export interface ShortcutSettings {
   bindings: Record<ShortcutAction, string>
 }
 
+export type OverlayDragModifier = "command" | "control" | "option" | "shift"
+
 export interface WindowControlSettings {
   movementStep: number
   rememberPosition: boolean
   resetPositionOnShow: boolean
   showOnAllWorkspaces: boolean
   overlayOpacity: number
+  dragModifier: OverlayDragModifier
 }
 
 export interface ControlSettings {
@@ -70,11 +73,13 @@ export const defaultControlSettings: ControlSettings = {
     rememberPosition: true,
     resetPositionOnShow: false,
     showOnAllWorkspaces: true,
-    overlayOpacity: 0.88
+    overlayOpacity: 0.88,
+    dragModifier: "command"
   }
 }
 
 const shortcutActions = Object.keys(defaultShortcutBindings) as ShortcutAction[]
+const dragModifiers: OverlayDragModifier[] = ["command", "control", "option", "shift"]
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
@@ -205,7 +210,10 @@ export class AppSettingsStore {
           Number(value?.window?.overlayOpacity) || defaults.window.overlayOpacity,
           0.35,
           1
-        )
+        ),
+        dragModifier: dragModifiers.includes(value?.window?.dragModifier)
+          ? value.window.dragModifier
+          : defaults.window.dragModifier
       }
     }
   }

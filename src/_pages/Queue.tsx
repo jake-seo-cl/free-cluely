@@ -34,6 +34,7 @@ import SettingsPanel from "../components/ui/SettingsPanel"
 import {
   defaultControlSettings,
   defaultSidekickSettings,
+  OverlayDragModifier,
   SidekickSettings
 } from "../types/settings"
 import { BUILD_VERSION } from "../generated/buildVersion"
@@ -406,7 +407,31 @@ const calculateOverlayBounds = (
 }
 
 const handleClass =
-  "interactive pointer-events-auto absolute rounded-full border border-amber-200/35 bg-amber-200/20 shadow-[0_0_18px_rgba(251,191,36,0.16)] backdrop-blur transition hover:border-amber-100/70 hover:bg-amber-200/35 active:bg-amber-100/45"
+  "interactive absolute rounded-full border border-amber-200/35 bg-amber-200/20 shadow-[0_0_18px_rgba(251,191,36,0.16)] backdrop-blur transition hover:border-amber-100/70 hover:bg-amber-200/35 active:bg-amber-100/45"
+
+type ModifierState = {
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+}
+
+const overlayDragModifierLabels: Record<OverlayDragModifier, string> = {
+  command: "Command",
+  control: "Control",
+  option: "Option",
+  shift: "Shift"
+}
+
+const isOverlayDragModifierPressed = (
+  event: ModifierState,
+  modifier: OverlayDragModifier
+) => {
+  if (modifier === "command") return event.metaKey
+  if (modifier === "control") return event.ctrlKey
+  if (modifier === "option") return event.altKey
+  return event.shiftKey
+}
 
 const shouldBlockOverlayDrag = (target: EventTarget | null) => {
   if (!(target instanceof Element)) return true
@@ -487,9 +512,11 @@ const startOverlayDrag = async ({
 }
 
 const OverlayGrabHandles = ({
+  enabled,
   onDragStart,
   onDragEnd
 }: {
+  enabled: boolean
   onDragStart?: () => void
   onDragEnd?: () => void
 }) => {
@@ -556,6 +583,7 @@ const OverlayGrabHandles = ({
     event: React.PointerEvent<HTMLButtonElement>,
     mode: OverlayGrabMode
   ) => {
+    if (!enabled) return
     if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
@@ -570,26 +598,32 @@ const OverlayGrabHandles = ({
   }
 
   const transparency = opacityToTransparency(overlayOpacity)
+  const activeHandleClass = enabled ? "pointer-events-auto" : "pointer-events-none"
 
   return (
-    <div className="pointer-events-none absolute inset-0 z-[1100] opacity-0 transition duration-150 group-hover:opacity-100">
+    <div
+      aria-hidden={!enabled}
+      className={`pointer-events-none absolute inset-0 z-[1100] transition duration-150 ${
+        enabled ? "opacity-100" : "opacity-0"
+      }`}
+    >
       <button
         type="button"
         title="Move Sidekick"
         aria-label="Move Sidekick"
         onPointerDown={(event) => void startDrag(event, "move")}
-        className={`${handleClass} left-1/2 top-1 h-3 w-20 -translate-x-1/2 cursor-grab active:cursor-grabbing`}
+        className={`${activeHandleClass} ${handleClass} left-1/2 top-1 h-3 w-20 -translate-x-1/2 cursor-grab active:cursor-grabbing`}
       />
       <button
         type="button"
         title="Resize from top"
         aria-label="Resize from top"
         onPointerDown={(event) => void startDrag(event, "n")}
-        className={`${handleClass} left-28 right-56 top-0 h-2 cursor-n-resize`}
+        className={`${activeHandleClass} ${handleClass} left-28 right-56 top-0 h-2 cursor-n-resize`}
       />
       <div
         title={`Window transparency ${transparency}%`}
-        className="interactive pointer-events-auto absolute right-7 top-1 flex h-6 w-44 items-center gap-2 rounded-full border border-amber-200/35 bg-zinc-950/70 px-2 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur"
+        className={`interactive ${activeHandleClass} absolute right-7 top-1 flex h-6 w-44 items-center gap-2 rounded-full border border-amber-200/35 bg-zinc-950/70 px-2 shadow-[0_0_18px_rgba(251,191,36,0.14)] backdrop-blur`}
         onPointerDown={(event) => event.stopPropagation()}
       >
         <Settings2 className="h-3 w-3 shrink-0 text-amber-100/80" />
@@ -617,49 +651,49 @@ const OverlayGrabHandles = ({
         title="Resize from bottom"
         aria-label="Resize from bottom"
         onPointerDown={(event) => void startDrag(event, "s")}
-        className={`${handleClass} bottom-0 left-28 right-28 h-2 cursor-s-resize`}
+        className={`${activeHandleClass} ${handleClass} bottom-0 left-28 right-28 h-2 cursor-s-resize`}
       />
       <button
         type="button"
         title="Resize from left"
         aria-label="Resize from left"
         onPointerDown={(event) => void startDrag(event, "w")}
-        className={`${handleClass} bottom-16 left-0 top-16 w-2 cursor-w-resize`}
+        className={`${activeHandleClass} ${handleClass} bottom-16 left-0 top-16 w-2 cursor-w-resize`}
       />
       <button
         type="button"
         title="Resize from right"
         aria-label="Resize from right"
         onPointerDown={(event) => void startDrag(event, "e")}
-        className={`${handleClass} bottom-16 right-0 top-16 w-2 cursor-e-resize`}
+        className={`${activeHandleClass} ${handleClass} bottom-16 right-0 top-16 w-2 cursor-e-resize`}
       />
       <button
         type="button"
         title="Resize from top left"
         aria-label="Resize from top left"
         onPointerDown={(event) => void startDrag(event, "nw")}
-        className={`${handleClass} left-0 top-0 h-5 w-5 cursor-nw-resize`}
+        className={`${activeHandleClass} ${handleClass} left-0 top-0 h-5 w-5 cursor-nw-resize`}
       />
       <button
         type="button"
         title="Resize from top right"
         aria-label="Resize from top right"
         onPointerDown={(event) => void startDrag(event, "ne")}
-        className={`${handleClass} right-0 top-0 h-5 w-5 cursor-ne-resize`}
+        className={`${activeHandleClass} ${handleClass} right-0 top-0 h-5 w-5 cursor-ne-resize`}
       />
       <button
         type="button"
         title="Resize from bottom left"
         aria-label="Resize from bottom left"
         onPointerDown={(event) => void startDrag(event, "sw")}
-        className={`${handleClass} bottom-0 left-0 h-5 w-5 cursor-sw-resize`}
+        className={`${activeHandleClass} ${handleClass} bottom-0 left-0 h-5 w-5 cursor-sw-resize`}
       />
       <button
         type="button"
         title="Resize from bottom right"
         aria-label="Resize from bottom right"
         onPointerDown={(event) => void startDrag(event, "se")}
-        className={`${handleClass} bottom-0 right-0 h-5 w-5 cursor-se-resize`}
+        className={`${activeHandleClass} ${handleClass} bottom-0 right-0 h-5 w-5 cursor-se-resize`}
       />
     </div>
   )
@@ -713,11 +747,55 @@ const Queue: React.FC<QueueProps> = () => {
     variant: "neutral"
   })
   const [isOverlayDragging, setIsOverlayDragging] = useState(false)
+  const [overlayDragModifier, setOverlayDragModifier] =
+    useState<OverlayDragModifier>(defaultControlSettings.window.dragModifier)
+  const [isOverlayDragModifierActive, setIsOverlayDragModifierActive] = useState(false)
 
   useEffect(() => {
     setStoredMeetings(loadStoredMeetings())
     setQueuedMeetings(loadQueuedMeetings())
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadControlSettings = async () => {
+      try {
+        const controlSettings = await window.electronAPI.getControlSettings()
+        if (!cancelled) {
+          setOverlayDragModifier(controlSettings.window.dragModifier)
+        }
+      } catch (error) {
+        console.error("Could not load overlay drag modifier:", error)
+      }
+    }
+
+    void loadControlSettings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleKeyChange = (event: KeyboardEvent) => {
+      setIsOverlayDragModifierActive(
+        isOverlayDragModifierPressed(event, overlayDragModifier)
+      )
+    }
+
+    const clearModifier = () => setIsOverlayDragModifierActive(false)
+
+    window.addEventListener("keydown", handleKeyChange, true)
+    window.addEventListener("keyup", handleKeyChange, true)
+    window.addEventListener("blur", clearModifier)
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyChange, true)
+      window.removeEventListener("keyup", handleKeyChange, true)
+      window.removeEventListener("blur", clearModifier)
+    }
+  }, [overlayDragModifier])
 
   useEffect(() => {
     transcriptRef.current = transcriptSegments
@@ -1433,6 +1511,7 @@ const Queue: React.FC<QueueProps> = () => {
   const startOverlaySurfaceDrag = (event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || event.defaultPrevented) return
     if (shouldBlockOverlayDrag(event.target)) return
+    if (!isOverlayDragModifierPressed(event, overlayDragModifier)) return
 
     event.preventDefault()
     event.stopPropagation()
@@ -1444,6 +1523,19 @@ const Queue: React.FC<QueueProps> = () => {
       onDragStart: () => setIsOverlayDragging(true),
       onDragEnd: () => setIsOverlayDragging(false)
     })
+  }
+
+  const updateOverlayDragModifierFromPointer = (
+    event: React.PointerEvent<HTMLDivElement>
+  ) => {
+    setIsOverlayDragModifierActive(
+      isOverlayDragModifierPressed(event, overlayDragModifier)
+    )
+  }
+
+  const handleControlSettingsChange = (controlSettings: typeof defaultControlSettings) => {
+    setOverlayDragModifier(controlSettings.window.dragModifier)
+    setIsOverlayDragModifierActive(false)
   }
 
   useEffect(() => {
@@ -1549,14 +1641,24 @@ const Queue: React.FC<QueueProps> = () => {
 
       <div
         className="liquid-glass chat-container overlay-shell group relative overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl"
+        data-overlay-drag-enabled={
+          isOverlayDragModifierActive || isOverlayDragging ? "true" : undefined
+        }
         data-overlay-dragging={isOverlayDragging ? "true" : undefined}
         onPointerDown={startOverlaySurfaceDrag}
+        onPointerEnter={updateOverlayDragModifierFromPointer}
+        onPointerMove={updateOverlayDragModifierFromPointer}
+        onPointerLeave={() => {
+          if (!isOverlayDragging) setIsOverlayDragModifierActive(false)
+        }}
+        title={`Hold ${overlayDragModifierLabels[overlayDragModifier]} and drag empty space to move Sidekick`}
       >
         <OverlayGrabHandles
+          enabled={isOverlayDragModifierActive || isOverlayDragging}
           onDragStart={() => setIsOverlayDragging(true)}
           onDragEnd={() => setIsOverlayDragging(false)}
         />
-        <div className="draggable-area flex h-9 items-center justify-between border-b border-white/10 px-3">
+        <div className="overlay-titlebar flex h-9 items-center justify-between border-b border-white/10 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <img
               src="./sidekick.svg"
@@ -1661,6 +1763,7 @@ const Queue: React.FC<QueueProps> = () => {
               <SettingsPanel
                 settings={settings}
                 onSettingsChange={setSettings}
+                onControlSettingsChange={handleControlSettingsChange}
                 storedMeetingsCount={storedMeetings.length}
                 queuedMeetingsCount={queuedMeetings.filter((meeting) => meeting.status !== "dismissed").length}
                 isIdle={isIdle}
@@ -1829,6 +1932,7 @@ const Queue: React.FC<QueueProps> = () => {
               <SettingsPanel
                 settings={settings}
                 onSettingsChange={setSettings}
+                onControlSettingsChange={handleControlSettingsChange}
                 storedMeetingsCount={storedMeetings.length}
                 queuedMeetingsCount={queuedMeetings.filter((meeting) => meeting.status !== "dismissed").length}
                 isIdle={isIdle}

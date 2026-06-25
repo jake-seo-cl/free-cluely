@@ -22,6 +22,7 @@ import {
 import {
   ControlSettings,
   defaultControlSettings,
+  OverlayDragModifier,
   ShortcutAction,
   SidekickSettings
 } from "../../types/settings"
@@ -41,6 +42,7 @@ interface SettingsPanelProps {
   onClearMemory: () => void
   onClearQueue: () => void
   onResetSettings: () => void
+  onControlSettingsChange?: (settings: ControlSettings) => void
 }
 
 const settingSections: Array<{
@@ -125,6 +127,16 @@ const shortcutRows: Array<{
     label: "Reset session",
     description: "Clear queues and return to the main view."
   }
+]
+
+const overlayDragModifierOptions: Array<{
+  value: OverlayDragModifier
+  label: string
+}> = [
+  { value: "command", label: "Command" },
+  { value: "control", label: "Control" },
+  { value: "option", label: "Option" },
+  { value: "shift", label: "Shift" }
 ]
 
 const modeLabels: Record<MeetingMode, string> = {
@@ -270,6 +282,40 @@ const NumberRow = ({
   </div>
 )
 
+const SelectRow = <T extends string,>({
+  title,
+  description,
+  value,
+  options,
+  onChange
+}: {
+  title: string
+  description: string
+  value: T
+  options: Array<{ value: T; label: string }>
+  onChange: (value: T) => void
+}) => (
+  <label className="interactive flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.04] px-3 py-2">
+    <span className="min-w-0">
+      <span className="block text-[12px] font-medium text-zinc-100">{title}</span>
+      <span className="mt-0.5 block text-[11px] leading-4 text-zinc-400">
+        {description}
+      </span>
+    </span>
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as T)}
+      className="interactive h-8 min-w-[118px] rounded-md border border-white/15 bg-zinc-950/60 px-2 text-[12px] text-zinc-100 outline-none focus:border-amber-300/50"
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  </label>
+)
+
 const RangeRow = ({
   title,
   description,
@@ -350,7 +396,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onExportMemory,
   onClearMemory,
   onClearQueue,
-  onResetSettings
+  onResetSettings,
+  onControlSettingsChange
 }) => {
   const [activeSection, setActiveSection] = useState<SettingsSection>("controls")
   const [controlSettings, setControlSettings] =
@@ -372,7 +419,10 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     const loadControlSettings = async () => {
       try {
         const loaded = await window.electronAPI.getControlSettings()
-        if (!cancelled) setControlSettings(loaded)
+        if (!cancelled) {
+          setControlSettings(loaded)
+          onControlSettingsChange?.(loaded)
+        }
       } catch (error) {
         console.error("Could not load control settings:", error)
         setStatus("Control settings unavailable")
@@ -422,9 +472,11 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
 
   const updateControlSettings = async (next: ControlSettings) => {
     setControlSettings(next)
+    onControlSettingsChange?.(next)
     try {
       const saved = await window.electronAPI.updateControlSettings(next)
       setControlSettings(saved)
+      onControlSettingsChange?.(saved)
       setStatus("Controls saved")
     } catch (error) {
       console.error("Could not save control settings:", error)
@@ -449,6 +501,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
     try {
       const saved = await window.electronAPI.resetControlSettings()
       setControlSettings(saved)
+      onControlSettingsChange?.(saved)
       setStatus("Controls reset")
     } catch (error) {
       console.error("Could not reset controls:", error)
@@ -506,6 +559,18 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
                   ...controlSettings.window,
                   overlayOpacity: 1 - transparency / 100
                 }
+              })
+            }
+          />
+          <SelectRow
+            title="Drag modifier"
+            description="Hold this key while dragging empty overlay space."
+            value={controlSettings.window.dragModifier}
+            options={overlayDragModifierOptions}
+            onChange={(dragModifier) =>
+              void updateControlSettings({
+                ...controlSettings,
+                window: { ...controlSettings.window, dragModifier }
               })
             }
           />

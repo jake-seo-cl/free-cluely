@@ -131,7 +131,7 @@ button, input, select, textarea, .interactive {
 }
 
 .overlay-shell {
-  cursor: grab;
+  cursor: default;
   transition:
     border-color 150ms ease,
     background-color 150ms ease,
@@ -139,7 +139,11 @@ button, input, select, textarea, .interactive {
     filter 150ms ease;
 }
 
-.overlay-shell:hover,
+.overlay-shell[data-overlay-drag-enabled="true"] {
+  cursor: grab;
+}
+
+.overlay-shell[data-overlay-drag-enabled="true"]:hover,
 .overlay-shell[data-overlay-dragging="true"] {
   border-color: rgba(251, 191, 36, 0.58);
   background: rgba(9, 9, 11, 0.78);
