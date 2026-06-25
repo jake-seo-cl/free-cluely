@@ -1,10 +1,21 @@
-import { app, BrowserWindow, Tray, Menu, nativeImage, desktopCapturer, session } from "electron"
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  nativeImage,
+  desktopCapturer,
+  session,
+  shell,
+  systemPreferences
+} from "electron"
 import { initializeIpcHandlers } from "./ipcHandlers"
 import { WindowHelper } from "./WindowHelper"
 import { ScreenshotHelper } from "./ScreenshotHelper"
 import { ShortcutsHelper } from "./shortcuts"
 import { ProcessingHelper } from "./ProcessingHelper"
 import { LocalRuntimeManager } from "./LocalRuntimeManager"
+import { MacSystemAudioCapture } from "./MacSystemAudioCapture"
 import path from "node:path"
 import {
   AppSettingsStore,
@@ -16,6 +27,64 @@ const getAssetPath = (...parts: string[]) =>
   app.isPackaged
     ? path.join(process.resourcesPath, "assets", ...parts)
     : path.join(app.getAppPath(), "assets", ...parts)
+
+export type AudioCaptureCapabilities = {
+  platform: NodeJS.Platform
+  supportsSystemAudio: boolean
+  systemAudioCapturePath: "loopback" | "system-picker" | "unsupported"
+  requiresUserPrompt: boolean
+  screenPermission: "not-determined" | "granted" | "denied" | "restricted" | "unknown"
+  nativeSystemAudioAvailable: boolean
+  unsupportedReason?: string
+}
+
+function getScreenPermissionStatus(): AudioCaptureCapabilities["screenPermission"] {
+  if (process.platform !== "darwin" && process.platform !== "win32") {
+    return "unknown"
+  }
+
+  return systemPreferences.getMediaAccessStatus("screen")
+}
+
+function getAudioCaptureCapabilities(): AudioCaptureCapabilities {
+  const screenPermission = getScreenPermissionStatus()
+
+  if (process.platform === "win32") {
+    return {
+      platform: process.platform,
+      supportsSystemAudio: true,
+      systemAudioCapturePath: "loopback",
+      requiresUserPrompt: false,
+      screenPermission,
+      nativeSystemAudioAvailable: false
+    }
+  }
+
+  if (process.platform === "darwin") {
+    return {
+      platform: process.platform,
+      supportsSystemAudio: true,
+      systemAudioCapturePath: "system-picker",
+      requiresUserPrompt: true,
+      screenPermission,
+      nativeSystemAudioAvailable: false,
+      unsupportedReason:
+        screenPermission === "denied" || screenPermission === "restricted"
+          ? "Screen Recording permission is required for system audio capture."
+          : undefined
+    }
+  }
+
+  return {
+    platform: process.platform,
+    supportsSystemAudio: false,
+    systemAudioCapturePath: "unsupported",
+    requiresUserPrompt: false,
+    screenPermission,
+    nativeSystemAudioAvailable: false,
+    unsupportedReason: "System audio capture is not available on this platform."
+  }
+}
 
 function registerSystemAudioCapture(): void {
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
@@ -30,15 +99,17 @@ function registerSystemAudioCapture(): void {
         return
       }
 
-      callback({
-        video: screen,
-        audio: process.platform === "win32" ? "loopback" : undefined
-      })
+      const streams: Electron.Streams = { video: screen }
+      if (process.platform === "win32") {
+        streams.audio = "loopback"
+      }
+
+      callback(streams)
     } catch (error) {
       console.error("Unable to resolve display media source:", error)
       callback({})
     }
-  })
+  }, { useSystemPicker: process.platform === "darwin" })
 }
 
 function createTrayImage() {
@@ -57,6 +128,7 @@ export class AppState {
   public shortcutsHelper: ShortcutsHelper
   public processingHelper: ProcessingHelper
   public localRuntimeManager: LocalRuntimeManager
+  private macSystemAudioCapture: MacSystemAudioCapture
   private settingsStore: AppSettingsStore
   private tray: Tray | null = null
 
@@ -103,6 +175,9 @@ export class AppState {
 
     // Initialize managed local model runtime
     this.localRuntimeManager = new LocalRuntimeManager()
+
+    // Initialize native macOS system audio capture bridge
+    this.macSystemAudioCapture = new MacSystemAudioCapture(() => this.getMainWindow())
 
     // Initialize persisted app controls/settings
     this.settingsStore = new AppSettingsStore()
@@ -215,6 +290,43 @@ export class AppState {
 
   public setOverlayOpacity(opacity: number): number | null {
     return this.windowHelper.setOverlayOpacity(opacity)
+  }
+
+  public getAudioCaptureCapabilities(): AudioCaptureCapabilities {
+    return {
+      ...getAudioCaptureCapabilities(),
+      nativeSystemAudioAvailable: this.hasNativeSystemAudioCapture()
+    }
+  }
+
+  public async openSystemAudioPermissionSettings(): Promise<{ success: boolean }> {
+    if (process.platform === "darwin") {
+      await shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+      )
+      return { success: true }
+    }
+
+    if (process.platform === "win32") {
+      await shell.openExternal("ms-settings:privacy-microphone")
+      return { success: true }
+    }
+
+    return { success: false }
+  }
+
+  public hasNativeSystemAudioCapture(): boolean {
+    return this.macSystemAudioCapture.isAvailable()
+  }
+
+  public startNativeSystemAudioCapture(
+    chunkSeconds: number
+  ): Promise<{ success: boolean; error?: string }> {
+    return this.macSystemAudioCapture.start(chunkSeconds)
+  }
+
+  public stopNativeSystemAudioCapture(): Promise<void> {
+    return this.macSystemAudioCapture.stop()
   }
 
   public clearQueues(): void {
@@ -387,6 +499,7 @@ async function initializeApp() {
   })
 
   app.on("before-quit", () => {
+    void appState.stopNativeSystemAudioCapture()
     void appState.getLocalRuntimeManager().stop()
   })
 

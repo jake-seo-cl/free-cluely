@@ -1,17 +1,18 @@
 {
   "name": "sidekick",
-  "version": "1.0.0",
+  "version": "0.0.0",
   "main": "./dist-electron/main.js",
   "scripts": {
     "clean": "rimraf dist dist-electron",
     "dev": "vite",
-    "build": "node scripts/sync-build-version.mjs --sync-only && npm run clean && tsc && tsc -p electron/tsconfig.json && vite build",
+    "native:build": "node scripts/build-native-audio.mjs",
+    "build": "node scripts/sync-build-version.mjs && npm run native:build && npm run clean && tsc && tsc -p electron/tsconfig.json && vite build",
     "preview": "vite preview",
     "icons:generate": "node scripts/generate-sidekick-icons.mjs",
     "runtime:download": "node scripts/download-local-runtime.mjs",
     "postinstall": "node scripts/rebuild-sharp.mjs",
-    "electron:dev": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron .",
-    "electron:build": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=production electron .",
+    "electron:dev": "npm run native:build && tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron .",
+    "electron:build": "npm run native:build && tsc -p electron/tsconfig.json && cross-env NODE_ENV=production electron .",
     "app:dev": "concurrently \"npm run dev -- --port 5180\" \"wait-on http://localhost:5180 && npm run electron:dev\"",
     "app:build": "npm run runtime:download && npm run build && electron-builder",
     "watch": "tsc -p electron/tsconfig.json --watch",
@@ -40,6 +41,16 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "assets/icons/mac/icon.icns",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Sidekick needs microphone access only when system meeting audio is unavailable.",
+        "NSScreenCaptureDescription": "Sidekick needs screen capture permission to request system meeting audio."
+      },
+      "extraResources": [
+        {
+          "from": "native/bin/macos-system-audio-capture",
+          "to": "native/macos-system-audio-capture"
+        }
+      ],
       "target": [
         {
           "target": "dmg",

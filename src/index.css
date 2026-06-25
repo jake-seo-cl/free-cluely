@@ -158,6 +158,12 @@ button, input, select, textarea, .interactive {
   cursor: grabbing;
 }
 
+.overlay-shell[data-overlay-opaque="true"],
+.overlay-shell[data-overlay-opaque="true"][data-overlay-drag-enabled="true"]:hover,
+.overlay-shell[data-overlay-opaque="true"][data-overlay-dragging="true"] {
+  background: rgb(9, 9, 11);
+}
+
 /* Thin bar variant of liquid glass - for command bar */
 .liquid-glass-bar {
   background: rgba(255, 255, 255, 0.25);

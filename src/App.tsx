@@ -34,6 +34,8 @@ declare global {
       onSolutionSuccess: (callback: (data: any) => void) => () => void
       onProblemExtracted: (callback: (data: any) => void) => () => void
       onMeetingShortcut: (callback: (action: string) => void) => () => void
+      onNativeSystemAudioChunk: (callback: (chunk: { data: string; mimeType: string }) => void) => () => void
+      onNativeSystemAudioError: (callback: (error: string) => void) => () => void
 
       onDebugSuccess: (callback: (data: any) => void) => () => void
 
@@ -45,7 +47,18 @@ declare global {
       analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
       analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
       analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
-      getAudioCaptureCapabilities: () => Promise<{ supportsSystemAudio: boolean; platform: string }>
+      getAudioCaptureCapabilities: () => Promise<{
+        platform: string
+        supportsSystemAudio: boolean
+        systemAudioCapturePath: "loopback" | "system-picker" | "unsupported"
+        requiresUserPrompt: boolean
+        screenPermission: "not-determined" | "granted" | "denied" | "restricted" | "unknown"
+        nativeSystemAudioAvailable: boolean
+        unsupportedReason?: string
+      }>
+      openSystemAudioPermissionSettings: () => Promise<{ success: boolean }>
+      startNativeSystemAudioCapture: (chunkSeconds: number) => Promise<{ success: boolean; error?: string }>
+      stopNativeSystemAudioCapture: () => Promise<void>
       readClipboardText: () => Promise<string>
 
       moveWindowLeft: () => Promise<void>

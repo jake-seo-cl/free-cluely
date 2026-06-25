@@ -23,6 +23,10 @@ interface ElectronAPI {
   onProblemExtracted: (callback: (data: any) => void) => () => void
   onSolutionSuccess: (callback: (data: any) => void) => () => void
   onMeetingShortcut: (callback: (action: string) => void) => () => void
+  onNativeSystemAudioChunk: (
+    callback: (chunk: { data: string; mimeType: string }) => void
+  ) => () => void
+  onNativeSystemAudioError: (callback: (error: string) => void) => () => void
 
   onUnauthorized: (callback: () => void) => () => void
   onDebugError: (callback: (error: string) => void) => () => void
@@ -40,7 +44,18 @@ interface ElectronAPI {
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
-  getAudioCaptureCapabilities: () => Promise<{ supportsSystemAudio: boolean; platform: string }>
+  getAudioCaptureCapabilities: () => Promise<{
+    platform: string
+    supportsSystemAudio: boolean
+    systemAudioCapturePath: "loopback" | "system-picker" | "unsupported"
+    requiresUserPrompt: boolean
+    screenPermission: "not-determined" | "granted" | "denied" | "restricted" | "unknown"
+    nativeSystemAudioAvailable: boolean
+    unsupportedReason?: string
+  }>
+  openSystemAudioPermissionSettings: () => Promise<{ success: boolean }>
+  startNativeSystemAudioCapture: (chunkSeconds: number) => Promise<{ success: boolean; error?: string }>
+  stopNativeSystemAudioCapture: () => Promise<void>
   readClipboardText: () => Promise<string>
   quitApp: () => Promise<void>
   
@@ -188,6 +203,23 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("meeting-shortcut", subscription)
     }
   },
+  onNativeSystemAudioChunk: (
+    callback: (chunk: { data: string; mimeType: string }) => void
+  ) => {
+    const subscription = (_: any, chunk: { data: string; mimeType: string }) =>
+      callback(chunk)
+    ipcRenderer.on("native-system-audio-chunk", subscription)
+    return () => {
+      ipcRenderer.removeListener("native-system-audio-chunk", subscription)
+    }
+  },
+  onNativeSystemAudioError: (callback: (error: string) => void) => {
+    const subscription = (_: any, error: string) => callback(error)
+    ipcRenderer.on("native-system-audio-error", subscription)
+    return () => {
+      ipcRenderer.removeListener("native-system-audio-error", subscription)
+    }
+  },
   onUnauthorized: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on(PROCESSING_EVENTS.UNAUTHORIZED, subscription)
@@ -208,11 +240,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-meeting-audio-base64", data, mimeType),
   analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
   analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
-  getAudioCaptureCapabilities: () =>
-    Promise.resolve({
-      supportsSystemAudio: process.platform === "win32",
-      platform: process.platform
-    }),
+  getAudioCaptureCapabilities: () => ipcRenderer.invoke("get-audio-capture-capabilities"),
+  openSystemAudioPermissionSettings: () =>
+    ipcRenderer.invoke("open-system-audio-permission-settings"),
+  startNativeSystemAudioCapture: (chunkSeconds: number) =>
+    ipcRenderer.invoke("start-native-system-audio-capture", chunkSeconds),
+  stopNativeSystemAudioCapture: () => ipcRenderer.invoke("stop-native-system-audio-capture"),
   readClipboardText: () => ipcRenderer.invoke("read-clipboard-text"),
   quitApp: () => ipcRenderer.invoke("quit-app"),
   

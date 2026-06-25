@@ -18,6 +18,8 @@ export interface ElectronAPI {
   onProblemExtracted: (callback: (data: any) => void) => () => void
   onSolutionSuccess: (callback: (data: any) => void) => () => void
   onMeetingShortcut: (callback: (action: string) => void) => () => void
+  onNativeSystemAudioChunk: (callback: (chunk: { data: string; mimeType: string }) => void) => () => void
+  onNativeSystemAudioError: (callback: (error: string) => void) => () => void
   onUnauthorized: (callback: () => void) => () => void
   onDebugError: (callback: (error: string) => void) => () => void
   takeScreenshot: () => Promise<{ path: string; preview: string }>
@@ -34,7 +36,18 @@ export interface ElectronAPI {
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
   analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
-  getAudioCaptureCapabilities: () => Promise<{ supportsSystemAudio: boolean; platform: string }>
+  getAudioCaptureCapabilities: () => Promise<{
+    platform: string
+    supportsSystemAudio: boolean
+    systemAudioCapturePath: "loopback" | "system-picker" | "unsupported"
+    requiresUserPrompt: boolean
+    screenPermission: "not-determined" | "granted" | "denied" | "restricted" | "unknown"
+    nativeSystemAudioAvailable: boolean
+    unsupportedReason?: string
+  }>
+  openSystemAudioPermissionSettings: () => Promise<{ success: boolean }>
+  startNativeSystemAudioCapture: (chunkSeconds: number) => Promise<{ success: boolean; error?: string }>
+  stopNativeSystemAudioCapture: () => Promise<void>
   readClipboardText: () => Promise<string>
   quitApp: () => Promise<void>
   getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>

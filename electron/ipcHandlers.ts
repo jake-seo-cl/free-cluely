@@ -191,6 +191,22 @@ export function initializeIpcHandlers(appState: AppState): void {
     return appState.setOverlayOpacity(opacity)
   })
 
+  ipcMain.handle("get-audio-capture-capabilities", async () => {
+    return appState.getAudioCaptureCapabilities()
+  })
+
+  ipcMain.handle("open-system-audio-permission-settings", async () => {
+    return appState.openSystemAudioPermissionSettings()
+  })
+
+  ipcMain.handle("start-native-system-audio-capture", async (_event, chunkSeconds: number) => {
+    return appState.startNativeSystemAudioCapture(chunkSeconds)
+  })
+
+  ipcMain.handle("stop-native-system-audio-capture", async () => {
+    await appState.stopNativeSystemAudioCapture()
+  })
+
   ipcMain.handle("get-control-settings", async () => {
     return appState.getControlSettings()
   })

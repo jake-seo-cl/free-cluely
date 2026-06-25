@@ -56,6 +56,7 @@ const QUEUE_STORAGE_KEY = "sidekick.meetingQueue.v1"
 const LEGACY_QUEUE_STORAGE_KEY = "sidekick-notes.meetingQueue.v1"
 const SETTINGS_KEY = "sidekick.settings.v1"
 const LEGACY_SETTINGS_KEY = "sidekick-notes.privacy.v1"
+const SYSTEM_AUDIO_PERMISSION_KEY = "sidekick.systemAudioPermissionPrompted.v1"
 const DETECTABLE_MEETING_HOSTS =
   /(zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|webex\.com|whereby\.com|gotomeeting\.com|bluejeans\.com|app\.slack\.com\/huddle|slack\.com\/call)/i
 
@@ -80,6 +81,31 @@ const confidenceClasses: Record<ConfidenceLevel, string> = {
 }
 
 type MeetingCaptureSource = "system" | "mic" | "none"
+type AudioCaptureCapabilities = {
+  platform: string
+  supportsSystemAudio: boolean
+  systemAudioCapturePath: "loopback" | "system-picker" | "unsupported"
+  requiresUserPrompt: boolean
+  screenPermission: "not-determined" | "granted" | "denied" | "restricted" | "unknown"
+  nativeSystemAudioAvailable: boolean
+  unsupportedReason?: string
+}
+type SystemAudioPermissionStatus =
+  | "checking"
+  | "ready"
+  | "needs-permission"
+  | "unsupported"
+  | "failed"
+
+class SystemAudioCaptureError extends Error {
+  constructor(
+    message: string,
+    readonly detail: string
+  ) {
+    super(message)
+    this.name = "SystemAudioCaptureError"
+  }
+}
 
 const newMeetingId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
@@ -368,6 +394,8 @@ const opacityToTransparency = (opacity: number) =>
 const transparencyToOpacity = (transparency: number) =>
   clampOverlayOpacity(1 - transparency / 100)
 
+const isFullyOpaqueOverlay = (opacity: number) => clampOverlayOpacity(opacity) >= 0.995
+
 const calculateOverlayBounds = (
   mode: OverlayGrabMode,
   startBounds: OverlayBounds,
@@ -513,10 +541,12 @@ const startOverlayDrag = async ({
 
 const OverlayGrabHandles = ({
   enabled,
+  onOpacityChange,
   onDragStart,
   onDragEnd
 }: {
   enabled: boolean
+  onOpacityChange?: (opacity: number) => void
   onDragStart?: () => void
   onDragEnd?: () => void
 }) => {
@@ -535,6 +565,7 @@ const OverlayGrabHandles = ({
         const nextOpacity = clampOverlayOpacity(settings.window.overlayOpacity)
         overlayOpacityRef.current = nextOpacity
         setOverlayOpacity(nextOpacity)
+        onOpacityChange?.(nextOpacity)
       } catch (error) {
         console.error("Could not load overlay opacity:", error)
       }
@@ -555,6 +586,7 @@ const OverlayGrabHandles = ({
     const nextOpacity = clampOverlayOpacity(opacity)
     overlayOpacityRef.current = nextOpacity
     setOverlayOpacity(nextOpacity)
+    onOpacityChange?.(nextOpacity)
 
     if (opacityFrameRef.current !== null) return
 
@@ -573,6 +605,7 @@ const OverlayGrabHandles = ({
       const savedOpacity = clampOverlayOpacity(settings.window.overlayOpacity)
       overlayOpacityRef.current = savedOpacity
       setOverlayOpacity(savedOpacity)
+      onOpacityChange?.(savedOpacity)
     } catch (error) {
       console.error("Could not save overlay opacity:", error)
       void window.electronAPI.setOverlayOpacity(nextOpacity)
@@ -714,6 +747,9 @@ const Queue: React.FC<QueueProps> = () => {
   const isAutoEndingRef = useRef(false)
   const lastActivityAtRef = useRef(Date.now())
   const lastModelUnloadAtRef = useRef(0)
+  const systemAudioPreflightRef = useRef<Promise<boolean> | null>(null)
+  const nativeSystemAudioActiveRef = useRef(false)
+  const isRecordingRef = useRef(false)
 
   const [meetingId, setMeetingId] = useState(newMeetingId())
   const [title, setTitle] = useState(() => loadSettings().defaultSessionTitle)
@@ -726,6 +762,12 @@ const Queue: React.FC<QueueProps> = () => {
   const [isGenerating, setIsGenerating] = useState(false)
   const [status, setStatus] = useState("Ready")
   const [captureSource, setCaptureSource] = useState<MeetingCaptureSource>("none")
+  const [audioCapabilities, setAudioCapabilities] =
+    useState<AudioCaptureCapabilities | null>(null)
+  const [systemAudioPermissionStatus, setSystemAudioPermissionStatus] =
+    useState<SystemAudioPermissionStatus>("checking")
+  const [systemAudioPermissionDetail, setSystemAudioPermissionDetail] =
+    useState("Checking system audio capture.")
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([])
   const [meetingInsights, setMeetingInsights] = useState<MeetingAudioAnalysis[]>([])
@@ -749,6 +791,7 @@ const Queue: React.FC<QueueProps> = () => {
   const [isOverlayDragging, setIsOverlayDragging] = useState(false)
   const [overlayDragModifier, setOverlayDragModifier] =
     useState<OverlayDragModifier>(defaultControlSettings.window.dragModifier)
+  const [overlayOpacity, setOverlayOpacity] = useState(defaultControlSettings.window.overlayOpacity)
   const [isOverlayDragModifierActive, setIsOverlayDragModifierActive] = useState(false)
 
   useEffect(() => {
@@ -764,6 +807,7 @@ const Queue: React.FC<QueueProps> = () => {
         const controlSettings = await window.electronAPI.getControlSettings()
         if (!cancelled) {
           setOverlayDragModifier(controlSettings.window.dragModifier)
+          setOverlayOpacity(clampOverlayOpacity(controlSettings.window.overlayOpacity))
         }
       } catch (error) {
         console.error("Could not load overlay drag modifier:", error)
@@ -804,6 +848,10 @@ const Queue: React.FC<QueueProps> = () => {
   useEffect(() => {
     notesRef.current = notes
   }, [notes])
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording
+  }, [isRecording])
 
   useEffect(() => {
     window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings))
@@ -895,9 +943,38 @@ const Queue: React.FC<QueueProps> = () => {
   })
 
   useEffect(() => {
+    const unsubscribeChunk = window.electronAPI.onNativeSystemAudioChunk((chunk) => {
+      if (!nativeSystemAudioActiveRef.current || !isRecordingRef.current) return
+
+      const task = processAudioChunkBase64(chunk.data, chunk.mimeType, "system")
+      audioTasksRef.current = [...audioTasksRef.current, task]
+      void task.finally(() => {
+        audioTasksRef.current = audioTasksRef.current.filter((item) => item !== task)
+      })
+    })
+
+    const unsubscribeError = window.electronAPI.onNativeSystemAudioError((error) => {
+      if (!nativeSystemAudioActiveRef.current) return
+      nativeSystemAudioActiveRef.current = false
+      isRecordingRef.current = false
+      setIsRecording(false)
+      setStatus("System audio stopped")
+      setSystemAudioPermissionStatus("failed")
+      setSystemAudioPermissionDetail(error)
+      showToast("System audio stopped", error, "error")
+    })
+
+    return () => {
+      unsubscribeChunk()
+      unsubscribeError()
+    }
+  }, [])
+
+  useEffect(() => {
     return () => {
       mediaRecorderRef.current?.stop()
       streamRef.current?.getTracks().forEach((track) => track.stop())
+      void window.electronAPI.stopNativeSystemAudioCapture()
     }
   }, [])
 
@@ -975,13 +1052,29 @@ const Queue: React.FC<QueueProps> = () => {
       ? "System audio"
       : captureSource === "mic"
         ? "Mic fallback"
-        : "No audio"
+        : systemAudioPermissionStatus === "ready"
+          ? "System ready"
+          : systemAudioPermissionStatus === "checking"
+            ? "Checking audio"
+            : "Needs audio"
   const captureSourceClasses =
-    captureSource === "system"
+    captureSource === "system" || (captureSource === "none" && systemAudioPermissionStatus === "ready")
       ? "border-emerald-300/40 bg-emerald-500/10 text-emerald-100"
-      : captureSource === "mic"
-        ? "border-amber-300/40 bg-amber-500/10 text-amber-100"
-        : "border-white/10 bg-white/5 text-zinc-400"
+    : captureSource === "mic"
+      ? "border-amber-300/40 bg-amber-500/10 text-amber-100"
+      : systemAudioPermissionStatus === "checking"
+        ? "border-sky-300/40 bg-sky-500/10 text-sky-100"
+        : "border-rose-300/40 bg-rose-500/10 text-rose-100"
+  const systemAudioNoticeTitle =
+    systemAudioPermissionStatus === "checking"
+      ? "Checking system audio"
+      : systemAudioPermissionStatus === "ready"
+        ? "System audio ready"
+        : systemAudioPermissionStatus === "unsupported"
+          ? "System audio unavailable"
+          : "System audio permission required"
+  const shouldShowSystemAudioNotice =
+    !isMeetingActive && systemAudioPermissionStatus !== "ready"
 
   const filteredMeetings = useMemo(() => {
     const query = memoryQuery.trim().toLowerCase()
@@ -1108,13 +1201,75 @@ const Queue: React.FC<QueueProps> = () => {
     stream?.getTracks().forEach((track) => track.stop())
   }
 
-  const requestSystemAudioStream = async () => {
+  const refreshAudioCapabilities = async () => {
+    const capabilities = await window.electronAPI.getAudioCaptureCapabilities()
+    setAudioCapabilities(capabilities)
+    return capabilities
+  }
+
+  const describeSystemAudioFailure = (capabilities: AudioCaptureCapabilities) => {
+    if (!capabilities.supportsSystemAudio) {
+      return capabilities.unsupportedReason || "System audio capture is not available here."
+    }
+
+    if (
+      capabilities.screenPermission === "denied" ||
+      capabilities.screenPermission === "restricted"
+    ) {
+      return "Screen Recording permission is required before Sidekick can capture meeting audio."
+    }
+
+    if (capabilities.systemAudioCapturePath === "system-picker") {
+      if (!capabilities.nativeSystemAudioAvailable) {
+        return "The macOS system audio helper is not built yet."
+      }
+      return "Choose a screen or meeting window and allow audio in the system picker."
+    }
+
+    return "Allow system audio capture so Sidekick can listen to the meeting."
+  }
+
+  const shouldUseNativeSystemAudio = (capabilities: AudioCaptureCapabilities) =>
+    capabilities.systemAudioCapturePath === "system-picker" &&
+    capabilities.nativeSystemAudioAvailable
+
+  const setSystemAudioUnavailable = (capabilities: AudioCaptureCapabilities) => {
+    setSystemAudioPermissionStatus(
+      capabilities.supportsSystemAudio ? "needs-permission" : "unsupported"
+    )
+    setSystemAudioPermissionDetail(describeSystemAudioFailure(capabilities))
+  }
+
+  const requestSystemAudioStream = async (
+    capabilities: AudioCaptureCapabilities
+  ) => {
+    if (!capabilities.supportsSystemAudio) {
+      throw new SystemAudioCaptureError(
+        "System audio unavailable",
+        describeSystemAudioFailure(capabilities)
+      )
+    }
+
+    if (
+      capabilities.screenPermission === "denied" ||
+      capabilities.screenPermission === "restricted"
+    ) {
+      throw new SystemAudioCaptureError(
+        "System audio permission denied",
+        describeSystemAudioFailure(capabilities)
+      )
+    }
+
     let displayStream: MediaStream | null = null
 
     try {
       displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
       })
 
       const audioTracks = displayStream.getAudioTracks()
@@ -1122,14 +1277,25 @@ const Queue: React.FC<QueueProps> = () => {
 
       if (audioTracks.length === 0) {
         stopStream(displayStream)
-        return null
+        throw new SystemAudioCaptureError(
+          "No system audio track",
+          "System audio permission opened, but Electron did not return an audio track."
+        )
       }
 
       return new MediaStream(audioTracks)
     } catch (error) {
-      console.warn("System audio capture unavailable; falling back to microphone.", error)
       stopStream(displayStream)
-      return null
+      if (error instanceof SystemAudioCaptureError) {
+        throw error
+      }
+
+      const name = error instanceof DOMException ? error.name : ""
+      const detail =
+        name === "NotAllowedError"
+          ? "System audio permission was not granted."
+          : describeSystemAudioFailure(capabilities)
+      throw new SystemAudioCaptureError("System audio capture failed", detail)
     }
   }
 
@@ -1142,27 +1308,162 @@ const Queue: React.FC<QueueProps> = () => {
       }
     })
 
+  const startNativeSystemAudioCapture = async () => {
+    const result = await window.electronAPI.startNativeSystemAudioCapture(
+      settings.transcriptChunkSeconds
+    )
+    if (!result.success) {
+      throw new SystemAudioCaptureError(
+        "Native system audio unavailable",
+        result.error || "Native macOS system audio capture could not start."
+      )
+    }
+
+    nativeSystemAudioActiveRef.current = true
+  }
+
+  const stopNativeSystemAudioCapture = async () => {
+    if (!nativeSystemAudioActiveRef.current) return
+    nativeSystemAudioActiveRef.current = false
+    await window.electronAPI.stopNativeSystemAudioCapture()
+  }
+
   const requestMeetingAudioStream = async (): Promise<{
     stream: MediaStream
     source: MeetingCaptureSource
   }> => {
-    const capabilities = await window.electronAPI.getAudioCaptureCapabilities()
-    const systemStream = capabilities.supportsSystemAudio
-      ? await requestSystemAudioStream()
-      : null
+    const capabilities = audioCapabilities || await refreshAudioCapabilities()
 
-    if (systemStream) {
+    if (!capabilities.supportsSystemAudio) {
+      setSystemAudioUnavailable(capabilities)
+      showToast("System audio unavailable", describeSystemAudioFailure(capabilities), "error")
       return {
-        stream: systemStream,
-        source: "system"
+        stream: await requestMicrophoneStream(),
+        source: "mic"
       }
     }
 
+    const systemStream = await requestSystemAudioStream(capabilities)
+    setSystemAudioPermissionStatus("ready")
+    setSystemAudioPermissionDetail("System audio is ready.")
+    window.localStorage.setItem(SYSTEM_AUDIO_PERMISSION_KEY, "ready")
+
     return {
-      stream: await requestMicrophoneStream(),
-      source: "mic"
+      stream: systemStream,
+      source: "system"
     }
   }
+
+  const ensureSystemAudioPermission = async (silent = false) => {
+    if (systemAudioPreflightRef.current) return systemAudioPreflightRef.current
+
+    const task = (async () => {
+      setSystemAudioPermissionStatus("checking")
+      setSystemAudioPermissionDetail("Checking system audio capture.")
+
+      const capabilities = await refreshAudioCapabilities()
+      if (!capabilities.supportsSystemAudio) {
+        setSystemAudioUnavailable(capabilities)
+        return false
+      }
+
+      try {
+        if (shouldUseNativeSystemAudio(capabilities)) {
+          await startNativeSystemAudioCapture()
+          await stopNativeSystemAudioCapture()
+          setSystemAudioPermissionStatus("ready")
+          setSystemAudioPermissionDetail("System audio is ready.")
+          window.localStorage.setItem(SYSTEM_AUDIO_PERMISSION_KEY, "ready")
+          if (!silent) {
+            showToast("System audio ready", "Sidekick will use meeting audio by default.", "success")
+          }
+          return true
+        }
+
+        const stream = await requestSystemAudioStream(capabilities)
+        stopStream(stream)
+        setSystemAudioPermissionStatus("ready")
+        setSystemAudioPermissionDetail("System audio is ready.")
+        window.localStorage.setItem(SYSTEM_AUDIO_PERMISSION_KEY, "ready")
+        if (!silent) {
+          showToast("System audio ready", "Sidekick will use meeting audio by default.", "success")
+        }
+        return true
+      } catch (error) {
+        const detail =
+          error instanceof SystemAudioCaptureError
+            ? error.detail
+            : "System audio permission could not be verified."
+        setSystemAudioPermissionStatus("failed")
+        setSystemAudioPermissionDetail(detail)
+        window.localStorage.setItem(SYSTEM_AUDIO_PERMISSION_KEY, "failed")
+        if (!silent) {
+          showToast("System audio not ready", detail, "error")
+        }
+        return false
+      }
+    })()
+
+    systemAudioPreflightRef.current = task
+    void task.finally(() => {
+      systemAudioPreflightRef.current = null
+    })
+    return task
+  }
+
+  const openSystemAudioSettings = async () => {
+    await window.electronAPI.openSystemAudioPermissionSettings()
+    showToast(
+      "Permission settings opened",
+      "Enable Screen Recording for Sidekick's audio helper, then restart the app.",
+      "neutral"
+    )
+  }
+
+  useEffect(() => {
+    let cancelled = false
+
+    const initializeSystemAudio = async () => {
+      try {
+        const capabilities = await refreshAudioCapabilities()
+        if (cancelled) return
+
+        if (!capabilities.supportsSystemAudio) {
+          setSystemAudioUnavailable(capabilities)
+          return
+        }
+
+        if (
+          capabilities.screenPermission === "denied" ||
+          capabilities.screenPermission === "restricted"
+        ) {
+          setSystemAudioUnavailable(capabilities)
+          return
+        }
+
+        const priorPrompt = window.localStorage.getItem(SYSTEM_AUDIO_PERMISSION_KEY)
+        if (priorPrompt === "ready" && !shouldUseNativeSystemAudio(capabilities)) {
+          setSystemAudioPermissionStatus("ready")
+          setSystemAudioPermissionDetail("System audio is ready.")
+          return
+        }
+
+        await ensureSystemAudioPermission()
+      } catch (error) {
+        console.error("System audio initialization failed:", error)
+        if (!cancelled) {
+          setSystemAudioPermissionStatus("failed")
+          setSystemAudioPermissionDetail("System audio permission could not be checked.")
+        }
+      }
+    }
+
+    void initializeSystemAudio()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const startMeeting = async (queuedMeeting?: QueuedMeeting) => {
     if (isMeetingActive) return
@@ -1174,6 +1475,23 @@ const Queue: React.FC<QueueProps> = () => {
     }
 
     try {
+      const capabilities = audioCapabilities || await refreshAudioCapabilities()
+      if (shouldUseNativeSystemAudio(capabilities)) {
+        await startNativeSystemAudioCapture()
+        captureSourceRef.current = "system"
+        startedAtRef.current = Date.now()
+        setElapsedSeconds(0)
+        setCaptureSource("system")
+        setSystemAudioPermissionStatus("ready")
+        setSystemAudioPermissionDetail("System audio is ready.")
+        window.localStorage.setItem(SYSTEM_AUDIO_PERMISSION_KEY, "ready")
+        setIsMeetingActive(true)
+        isRecordingRef.current = true
+        setIsRecording(true)
+        setStatus("Listening to meeting audio")
+        return
+      }
+
       const { stream, source } = await requestMeetingAudioStream()
       const recorder = new MediaRecorder(stream)
       streamRef.current = stream
@@ -1183,6 +1501,7 @@ const Queue: React.FC<QueueProps> = () => {
       setElapsedSeconds(0)
       setCaptureSource(source)
       setIsMeetingActive(true)
+      isRecordingRef.current = true
       setIsRecording(true)
       setStatus(source === "system" ? "Listening to meeting audio" : "Mic fallback active")
 
@@ -1197,6 +1516,7 @@ const Queue: React.FC<QueueProps> = () => {
       }
 
       recorder.onstop = () => {
+        isRecordingRef.current = false
         setIsRecording(false)
       }
 
@@ -1206,20 +1526,45 @@ const Queue: React.FC<QueueProps> = () => {
       if (queuedMeeting) {
         updateQueuedMeeting(queuedMeeting.id, { status: "queued" })
       }
-      showToast("Audio unavailable", "Check meeting audio or microphone permission and try again.", "error")
-      setStatus("Audio unavailable")
+      const detail =
+        error instanceof SystemAudioCaptureError
+          ? error.detail
+          : "Check meeting audio permission and try again."
+      if (error instanceof SystemAudioCaptureError) {
+        setSystemAudioPermissionStatus("failed")
+        setSystemAudioPermissionDetail(detail)
+      }
+      showToast("System audio unavailable", detail, "error")
+      setStatus("System audio unavailable")
     }
   }
 
-  const pauseMeeting = () => {
+  const pauseMeeting = async () => {
+    if (nativeSystemAudioActiveRef.current || (captureSourceRef.current === "system" && !mediaRecorderRef.current)) {
+      if (isRecordingRef.current) {
+        await stopNativeSystemAudioCapture()
+        isRecordingRef.current = false
+        setIsRecording(false)
+        setStatus("Paused")
+      } else {
+        await startNativeSystemAudioCapture()
+        isRecordingRef.current = true
+        setIsRecording(true)
+        setStatus("Listening to meeting audio")
+      }
+      return
+    }
+
     const recorder = mediaRecorderRef.current
     if (!recorder) return
     if (recorder.state === "recording") {
       recorder.pause()
+      isRecordingRef.current = false
       setIsRecording(false)
       setStatus("Paused")
     } else if (recorder.state === "paused") {
       recorder.resume()
+      isRecordingRef.current = true
       setIsRecording(true)
       setStatus(
         captureSourceRef.current === "system"
@@ -1229,8 +1574,20 @@ const Queue: React.FC<QueueProps> = () => {
     }
   }
 
-  const stopCapture = () =>
-    new Promise<void>((resolve) => {
+  const stopCapture = async () => {
+    if (nativeSystemAudioActiveRef.current || (captureSourceRef.current === "system" && !mediaRecorderRef.current)) {
+      await stopNativeSystemAudioCapture()
+      mediaRecorderRef.current = null
+      stopStream(streamRef.current)
+      streamRef.current = null
+      captureSourceRef.current = "none"
+      setCaptureSource("none")
+      isRecordingRef.current = false
+      setIsRecording(false)
+      return
+    }
+
+    await new Promise<void>((resolve) => {
       const recorder = mediaRecorderRef.current
       if (recorder && recorder.state !== "inactive") {
         recorder.onstop = () => {
@@ -1250,8 +1607,10 @@ const Queue: React.FC<QueueProps> = () => {
       streamRef.current = null
       captureSourceRef.current = "none"
       setCaptureSource("none")
+      isRecordingRef.current = false
       setIsRecording(false)
     })
+  }
 
   const waitForAudioTasks = async () => {
     const tasks = audioTasksRef.current
@@ -1287,13 +1646,16 @@ const Queue: React.FC<QueueProps> = () => {
     setStatus("Saved")
   }
 
-  const processAudioChunk = async (blob: Blob, source: MeetingCaptureSource) => {
+  const processAudioChunkBase64 = async (
+    base64: string,
+    mimeType: string,
+    source: MeetingCaptureSource
+  ) => {
     setIsAnalyzingAudio(true)
     try {
-      const base64 = await blobToBase64(blob)
       const result = (await window.electronAPI.analyzeMeetingAudioFromBase64(
         base64,
-        blob.type || "audio/webm"
+        mimeType
       )) as MeetingAudioAnalysis
 
       if (result.summary || result.questions.length > 0 || result.actionItems.length > 0) {
@@ -1328,6 +1690,11 @@ const Queue: React.FC<QueueProps> = () => {
     } finally {
       setIsAnalyzingAudio(false)
     }
+  }
+
+  const processAudioChunk = async (blob: Blob, source: MeetingCaptureSource) => {
+    const base64 = await blobToBase64(blob)
+    return processAudioChunkBase64(base64, blob.type || "audio/webm", source)
   }
 
   const buildMeetingPayload = () => ({
@@ -1535,6 +1902,7 @@ const Queue: React.FC<QueueProps> = () => {
 
   const handleControlSettingsChange = (controlSettings: typeof defaultControlSettings) => {
     setOverlayDragModifier(controlSettings.window.dragModifier)
+    setOverlayOpacity(clampOverlayOpacity(controlSettings.window.overlayOpacity))
     setIsOverlayDragModifierActive(false)
   }
 
@@ -1641,6 +2009,7 @@ const Queue: React.FC<QueueProps> = () => {
 
       <div
         className="liquid-glass chat-container overlay-shell group relative overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl"
+        data-overlay-opaque={isFullyOpaqueOverlay(overlayOpacity) ? "true" : undefined}
         data-overlay-drag-enabled={
           isOverlayDragModifierActive || isOverlayDragging ? "true" : undefined
         }
@@ -1655,6 +2024,7 @@ const Queue: React.FC<QueueProps> = () => {
       >
         <OverlayGrabHandles
           enabled={isOverlayDragModifierActive || isOverlayDragging}
+          onOpacityChange={setOverlayOpacity}
           onDragStart={() => setIsOverlayDragging(true)}
           onDragEnd={() => setIsOverlayDragging(false)}
         />
@@ -1757,6 +2127,45 @@ const Queue: React.FC<QueueProps> = () => {
               </InlineButton>
             </div>
           </div>
+
+          {shouldShowSystemAudioNotice && (
+            <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-300/30 bg-amber-500/10 p-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-[12px] font-semibold text-amber-50">
+                  <Radio className="h-3.5 w-3.5 shrink-0" />
+                  <span>{systemAudioNoticeTitle}</span>
+                </div>
+                <p className="mt-1 text-[11px] leading-4 text-amber-100/80">
+                  {systemAudioPermissionDetail}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {(audioCapabilities?.screenPermission === "denied" ||
+                  audioCapabilities?.screenPermission === "restricted" ||
+                  (audioCapabilities?.platform === "darwin" &&
+                    systemAudioPermissionStatus === "failed")) && (
+                  <InlineButton
+                    title="Open system audio permission settings"
+                    onClick={() => void openSystemAudioSettings()}
+                  >
+                    <Settings2 className="h-4 w-4" />
+                    Settings
+                  </InlineButton>
+                )}
+                {audioCapabilities?.supportsSystemAudio !== false && (
+                  <InlineButton
+                    title="Enable system audio"
+                    onClick={() => void ensureSystemAudioPermission()}
+                    disabled={systemAudioPermissionStatus === "checking"}
+                    variant="primary"
+                  >
+                    <Radio className="h-4 w-4" />
+                    Enable
+                  </InlineButton>
+                )}
+              </div>
+            </div>
+          )}
 
           {showSettingsPanel && (
             <div className="mb-2">
