@@ -175,6 +175,22 @@ export function initializeIpcHandlers(appState: AppState): void {
     appState.centerAndShowWindow()
   })
 
+  ipcMain.handle("reset-window-position", async () => {
+    appState.resetWindowPosition()
+  })
+
+  ipcMain.handle("get-control-settings", async () => {
+    return appState.getControlSettings()
+  })
+
+  ipcMain.handle("update-control-settings", async (_event, patch) => {
+    return appState.updateControlSettings(patch)
+  })
+
+  ipcMain.handle("reset-control-settings", async () => {
+    return appState.resetControlSettings()
+  })
+
   // LLM Model Management Handlers
   ipcMain.handle("get-current-llm-config", async () => {
     try {

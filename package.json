@@ -1,5 +1,5 @@
 {
-  "name": "sidekick-notes",
+  "name": "sidekick",
   "version": "1.0.0",
   "main": "./dist-electron/main.js",
   "scripts": {
@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "npm run clean && tsc && tsc -p electron/tsconfig.json && vite build",
     "preview": "vite preview",
+    "icons:generate": "node scripts/generate-sidekick-icons.mjs",
     "runtime:download": "node scripts/download-local-runtime.mjs",
-    "postinstall": "cross-env SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm rebuild sharp",
+    "postinstall": "node scripts/rebuild-sharp.mjs",
     "electron:dev": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=development electron .",
     "electron:build": "tsc -p electron/tsconfig.json && cross-env NODE_ENV=production electron .",
     "app:dev": "concurrently \"npm run dev -- --port 5180\" \"wait-on http://localhost:5180 && npm run electron:dev\"",
@@ -18,8 +19,8 @@
     "dist": "npm run app:build"
   },
   "build": {
-    "appId": "com.sidekick.notes",
-    "productName": "Sidekick Notes",
+    "appId": "com.sidekick.app",
+    "productName": "Sidekick",
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
@@ -38,6 +39,7 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "assets/icons/mac/icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -95,17 +97,16 @@
       {
         "provider": "github",
         "owner": "ibttf",
-        "repo": "sidekick-notes"
+        "repo": "sidekick"
       }
     ]
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "Private live meeting assistant with local-first notes, queueing, and model controls.",
   "devDependencies": {
     "@types/color": "^4.2.0",
-    "@types/diff": "^6.0.0",
     "@types/electron": "^1.4.38",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
@@ -115,40 +116,36 @@
     "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^8.14.0",
     "@typescript-eslint/parser": "^8.14.0",
-    "@vitejs/plugin-react": "^4.3.3",
+    "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "electron": "^33.2.0",
-    "electron-builder": "^25.1.8",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
     "electron-is-dev": "^3.0.1",
     "postcss": "^8.4.49",
     "rimraf": "^6.0.1",
     "tailwindcss": "^3.4.15",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11",
+    "vite": "^8.1.0",
     "vite-plugin-electron": "^0.28.8",
     "vite-plugin-electron-renderer": "^0.14.6",
     "wait-on": "^8.0.1"
   },
   "dependencies": {
-    "@google/genai": "^0.12.0",
-    "@google/generative-ai": "^0.2.1",
+    "@google/generative-ai": "^0.24.1",
     "@radix-ui/react-dialog": "^1.1.2",
     "@radix-ui/react-toast": "^1.2.2",
-    "axios": "^1.7.7",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "diff": "^7.0.0",
+    "diff": "^9.0.0",
     "dotenv": "^16.6.1",
-    "form-data": "^4.0.1",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
-    "react-code-blocks": "^0.1.6",
     "react-dom": "^18.3.1",
     "react-icons": "^5.3.0",
     "react-query": "^3.39.3",
-    "react-syntax-highlighter": "^15.6.1",
+    "react-syntax-highlighter": "^16.1.1",
     "screenshot-desktop": "^1.15.0",
     "sharp": "^0.33.5",
     "tailwind-merge": "^2.5.4",

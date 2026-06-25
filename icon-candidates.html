@@ -3,18 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sidekick Notes Icon Candidates</title>
+    <title>Sidekick Logo</title>
     <style>
       :root {
         color-scheme: dark;
-        --bg: #0a0d10;
-        --panel: #111820;
-        --panel-2: #0f141a;
-        --line: rgba(255, 255, 255, 0.1);
-        --text: #eef4f7;
-        --muted: #9aa9b4;
-        --accent: #4ecdc4;
-        --accent-2: #8cb7ff;
+        --bg: #071014;
+        --panel: #10181d;
+        --line: rgba(255, 255, 255, 0.12);
+        --text: #eef4f1;
+        --muted: #9aa9a4;
+        --accent: #ffe6a8;
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
           "Segoe UI", sans-serif;
@@ -28,660 +26,146 @@
         margin: 0;
         min-height: 100vh;
         background:
-          radial-gradient(circle at 20% 0%, rgba(78, 205, 196, 0.16), transparent 30rem),
-          radial-gradient(circle at 88% 10%, rgba(140, 183, 255, 0.14), transparent 34rem),
+          radial-gradient(circle at 20% 0%, rgba(87, 221, 213, 0.16), transparent 30rem),
+          radial-gradient(circle at 88% 10%, rgba(255, 230, 168, 0.12), transparent 34rem),
           linear-gradient(145deg, #07090b 0%, var(--bg) 52%, #0d1216 100%);
         color: var(--text);
       }
 
       main {
-        width: min(1280px, calc(100vw - 48px));
+        width: min(980px, calc(100vw - 48px));
         margin: 0 auto;
-        padding: 38px 0 56px;
-      }
-
-      header {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 24px;
-        align-items: end;
-        margin-bottom: 30px;
+        padding: 42px 0 56px;
       }
 
       h1 {
-        margin: 0 0 8px;
+        margin: 0;
         font-size: 34px;
         line-height: 1.05;
         letter-spacing: 0;
       }
 
       .intro {
-        margin: 0;
-        max-width: 760px;
+        margin: 10px 0 28px;
+        max-width: 720px;
         color: var(--muted);
         font-size: 15px;
         line-height: 1.6;
       }
 
-      .badge {
-        justify-self: end;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
-        color: #d8f7f2;
-        border-radius: 999px;
-        padding: 9px 13px;
-        font-size: 12px;
-        white-space: nowrap;
-      }
-
       .grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 0.6fr);
         gap: 18px;
       }
 
-      .card {
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
         background:
           linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02)),
           var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0 20px 70px rgba(0, 0, 0, 0.28);
+        padding: 22px;
       }
 
       .stage {
         display: grid;
-        grid-template-columns: 162px 1fr;
-        gap: 20px;
-        align-items: center;
-      }
-
-      .icon-wrap {
-        display: grid;
         place-items: center;
-        width: 162px;
-        height: 162px;
-        border-radius: 26px;
-        background:
-          linear-gradient(135deg, rgba(255, 255, 255, 0.12), transparent),
-          rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.11);
+        min-height: 360px;
       }
 
-      svg.icon {
-        width: 138px;
-        height: 138px;
-        display: block;
-        filter: drop-shadow(0 14px 26px rgba(0, 0, 0, 0.32));
-      }
-
-      .meta {
-        min-width: 0;
-      }
-
-      h2 {
-        margin: 0 0 7px;
-        font-size: 18px;
-        letter-spacing: 0;
-      }
-
-      .tagline {
-        margin: 0 0 14px;
-        color: #c8d4dc;
-        font-size: 13px;
-        line-height: 1.45;
-      }
-
-      .tokens {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-      }
-
-      .token {
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: var(--muted);
-        padding: 5px 8px;
-        font-size: 11px;
-        line-height: 1;
+      .mark {
+        width: min(280px, 72vw);
+        height: auto;
+        filter: drop-shadow(0 18px 38px rgba(0, 0, 0, 0.38));
       }
 
       .scale-row {
-        display: grid;
-        grid-template-columns: repeat(5, auto) 1fr;
-        align-items: center;
-        gap: 12px;
-        margin-top: 18px;
-        padding-top: 16px;
-        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 16px;
       }
 
       .mini {
         display: grid;
-        place-items: center;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-      }
-
-      .mini svg {
-        width: 100%;
-        height: 100%;
-      }
-
-      .size-64 {
-        width: 64px;
-        height: 64px;
-        border-radius: 14px;
-      }
-
-      .size-40 {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-      }
-
-      .size-24 {
-        width: 24px;
-        height: 24px;
-        border-radius: 6px;
-      }
-
-      .size-16 {
-        width: 16px;
-        height: 16px;
-        border-radius: 4px;
-      }
-
-      .score {
-        justify-self: end;
+        gap: 8px;
+        justify-items: center;
         color: var(--muted);
         font-size: 11px;
-        line-height: 1.35;
-        text-align: right;
       }
 
-      .recommend {
-        margin-top: 24px;
-        display: grid;
-        grid-template-columns: 1.1fr 0.9fr;
-        gap: 18px;
-      }
-
-      .note {
-        background: rgba(14, 21, 28, 0.82);
-        border: 1px solid var(--line);
+      .mini img {
         border-radius: 8px;
-        padding: 18px 20px;
       }
 
-      .note h3 {
-        margin: 0 0 8px;
-        font-size: 15px;
+      .mono {
+        padding: 18px;
+        border-radius: 8px;
+        background: #f5f5f0;
       }
 
-      .note p {
-        margin: 0;
-        color: var(--muted);
-        font-size: 13px;
+      .mono img {
+        display: block;
+        width: 96px;
+        height: 96px;
+      }
+
+      code {
+        display: block;
+        margin-top: 10px;
+        overflow-wrap: anywhere;
+        color: #dce8e4;
+        font-size: 12px;
         line-height: 1.55;
       }
 
-      .dock {
-        display: flex;
-        gap: 14px;
-        align-items: end;
-        min-height: 100%;
-        padding: 18px;
-        border-radius: 8px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)),
-          rgba(255, 255, 255, 0.03);
-      }
-
-      .dock .mini {
-        width: 54px;
-        height: 54px;
-        border-radius: 13px;
-        background: transparent;
-        border: 0;
-        filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.28));
-      }
-
-      @media (max-width: 1180px) {
-        .grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-      }
-
-      @media (max-width: 820px) {
-        main {
-          width: min(100% - 28px, 620px);
-          padding-top: 26px;
-        }
-
-        header,
-        .recommend {
-          grid-template-columns: 1fr;
-        }
-
-        .badge {
-          justify-self: start;
-        }
-
+      @media (max-width: 760px) {
         .grid {
           grid-template-columns: 1fr;
-        }
-
-        .stage {
-          grid-template-columns: 128px 1fr;
-        }
-
-        .icon-wrap {
-          width: 128px;
-          height: 128px;
-          border-radius: 22px;
-        }
-
-        svg.icon {
-          width: 108px;
-          height: 108px;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <header>
-        <div>
-          <h1>Sidekick Notes Icon Candidates</h1>
+      <h1>Sidekick Logo</h1>
+      <p class="intro">
+        Canonical Sidekick mark: the former option C meeting spark. All product,
+        tray, app, browser, and package icons should be generated from this
+        source only.
+      </p>
+
+      <div class="grid">
+        <section class="panel stage" aria-label="Canonical color logo">
+          <img class="mark" src="assets/icons/sidekick.svg" alt="Sidekick logo" />
+        </section>
+
+        <section class="panel">
+          <h2>Assets</h2>
+          <code>assets/icons/sidekick.svg</code>
+          <code>assets/icons/sidekick-template.svg</code>
+          <code>scripts/generate-sidekick-icons.mjs</code>
           <p class="intro">
-            Six dedicated app-icon directions for a private, always-on-top AI
-            assistant that captures context, analyzes screens and audio, and
-            turns meetings into grounded notes.
+            The template asset is monochrome so macOS can tint the menu-bar icon
+            correctly in light, dark, active, and high-contrast states.
           </p>
-        </div>
-        <div class="badge">HTML preview • embedded SVG candidates</div>
-      </header>
+          <div class="mono">
+            <img src="assets/icons/sidekick-template.svg" alt="Sidekick monochrome template" />
+          </div>
+        </section>
+      </div>
 
-      <section class="grid" aria-label="Icon candidates">
-        <article class="card">
-          <div class="stage">
-            <div class="icon-wrap">
-              <svg class="icon" viewBox="0 0 256 256" role="img" aria-labelledby="title-a">
-                <title id="title-a">Candidate A, Glass Wing</title>
-                <defs>
-                  <linearGradient id="a-bg" x1="32" y1="22" x2="224" y2="230" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#182832" />
-                    <stop offset="0.46" stop-color="#102126" />
-                    <stop offset="1" stop-color="#071014" />
-                  </linearGradient>
-                  <linearGradient id="a-wing" x1="71" y1="55" x2="191" y2="201" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#8DF5E8" />
-                    <stop offset="0.52" stop-color="#5CAFFF" />
-                    <stop offset="1" stop-color="#D8F4FF" />
-                  </linearGradient>
-                  <radialGradient id="a-glow" cx="0" cy="0" r="1" gradientTransform="translate(101 82) rotate(55) scale(143 94)" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#A9FFF5" stop-opacity="0.72" />
-                    <stop offset="1" stop-color="#5CAFFF" stop-opacity="0" />
-                  </radialGradient>
-                </defs>
-                <rect x="15" y="15" width="226" height="226" rx="52" fill="url(#a-bg)" />
-                <rect x="16" y="16" width="224" height="224" rx="51" fill="url(#a-glow)" />
-                <path d="M68 69c41-28 91-26 123 4-39 3-72 18-98 46l66 3c-27 12-50 32-67 60-13-35-21-72-24-113Z" fill="url(#a-wing)" />
-                <path d="M72 70c24 19 48 36 75 51-18 4-37 12-55 25-10-25-17-51-20-76Z" fill="rgba(7,16,20,0.38)" />
-                <path d="M94 181c15-27 38-47 65-59 13 10 24 23 32 40-28 5-60 11-97 19Z" fill="#E8FBFF" fill-opacity="0.88" />
-                <circle cx="166" cy="85" r="9" fill="#E7FDFF" />
-                <path d="M46 178c27 17 75 27 150 14" fill="none" stroke="#84F2E2" stroke-width="9" stroke-linecap="round" opacity="0.72" />
-                <rect x="15.5" y="15.5" width="225" height="225" rx="51.5" fill="none" stroke="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <div class="meta">
-              <h2>A. Glass Wing</h2>
-              <p class="tagline">A quiet sidekick mark: fast, lightweight, discreet, and still readable at tiny sizes.</p>
-              <div class="tokens">
-                <span class="token">sidekick</span>
-                <span class="token">private AI</span>
-                <span class="token">macOS-ready</span>
-              </div>
-            </div>
-          </div>
-          <div class="scale-row">
-            <div class="mini size-64">
-              <svg viewBox="0 0 256 256"><use href="#a-copy" /></svg>
-            </div>
-            <div class="mini size-40">
-              <svg viewBox="0 0 256 256"><use href="#a-copy" /></svg>
-            </div>
-            <div class="mini size-24">
-              <svg viewBox="0 0 256 256"><use href="#a-copy" /></svg>
-            </div>
-            <div class="mini size-16">
-              <svg viewBox="0 0 256 256"><use href="#a-copy" /></svg>
-            </div>
-            <div class="score">Best all-around<br />dock + menu bar</div>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="stage">
-            <div class="icon-wrap">
-              <svg class="icon" viewBox="0 0 256 256" role="img" aria-labelledby="title-b">
-                <title id="title-b">Candidate B, Capture Lens</title>
-                <defs>
-                  <linearGradient id="b-bg" x1="32" y1="22" x2="228" y2="234" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#263644" />
-                    <stop offset="0.44" stop-color="#13212B" />
-                    <stop offset="1" stop-color="#070B0F" />
-                  </linearGradient>
-                  <linearGradient id="b-lens" x1="65" y1="57" x2="190" y2="193" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#F2FEFF" />
-                    <stop offset="0.43" stop-color="#62D7E8" />
-                    <stop offset="1" stop-color="#326BFF" />
-                  </linearGradient>
-                  <radialGradient id="b-core" cx="0" cy="0" r="1" gradientTransform="translate(128 121) scale(54)" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#FFFFFF" />
-                    <stop offset="0.48" stop-color="#8CEBE2" />
-                    <stop offset="1" stop-color="#2A5268" />
-                  </radialGradient>
-                </defs>
-                <rect x="15" y="15" width="226" height="226" rx="52" fill="url(#b-bg)" />
-                <path d="M66 84a18 18 0 0 1 18-18h88a18 18 0 0 1 18 18v88a18 18 0 0 1-18 18H84a18 18 0 0 1-18-18V84Z" fill="rgba(255,255,255,0.09)" stroke="rgba(255,255,255,0.23)" stroke-width="8" />
-                <path d="M48 102V76c0-16 12-28 28-28h26M154 48h26c16 0 28 12 28 28v26M208 154v26c0 16-12 28-28 28h-26M102 208H76c-16 0-28-12-28-28v-26" fill="none" stroke="#86EFE7" stroke-width="11" stroke-linecap="round" />
-                <circle cx="128" cy="128" r="47" fill="url(#b-lens)" />
-                <circle cx="128" cy="128" r="28" fill="url(#b-core)" />
-                <path d="M98 98c17-14 41-17 62-8" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.72" />
-                <path d="M118 151h53" stroke="#071014" stroke-width="11" stroke-linecap="round" opacity="0.42" />
-                <rect x="15.5" y="15.5" width="225" height="225" rx="51.5" fill="none" stroke="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <div class="meta">
-              <h2>B. Capture Lens</h2>
-              <p class="tagline">Directly owns the screenshot-analysis workflow with scan corners and a glassy AI lens.</p>
-              <div class="tokens">
-                <span class="token">screenshots</span>
-                <span class="token">OCR</span>
-                <span class="token">analysis</span>
-              </div>
-            </div>
-          </div>
-          <div class="scale-row">
-            <div class="mini size-64"><svg viewBox="0 0 256 256"><use href="#b-copy" /></svg></div>
-            <div class="mini size-40"><svg viewBox="0 0 256 256"><use href="#b-copy" /></svg></div>
-            <div class="mini size-24"><svg viewBox="0 0 256 256"><use href="#b-copy" /></svg></div>
-            <div class="mini size-16"><svg viewBox="0 0 256 256"><use href="#b-copy" /></svg></div>
-            <div class="score">Most literal<br />product fit</div>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="stage">
-            <div class="icon-wrap">
-              <svg class="icon" viewBox="0 0 256 256" role="img" aria-labelledby="title-c">
-                <title id="title-c">Candidate C, Meeting Spark</title>
-                <defs>
-                  <linearGradient id="c-bg" x1="26" y1="20" x2="230" y2="238" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#203138" />
-                    <stop offset="0.54" stop-color="#111A20" />
-                    <stop offset="1" stop-color="#071014" />
-                  </linearGradient>
-                  <linearGradient id="c-page" x1="79" y1="55" x2="180" y2="203" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#FFFFFF" />
-                    <stop offset="0.44" stop-color="#B7F5EE" />
-                    <stop offset="1" stop-color="#7EA8FF" />
-                  </linearGradient>
-                </defs>
-                <rect x="15" y="15" width="226" height="226" rx="52" fill="url(#c-bg)" />
-                <path d="M75 67c0-13 11-23 24-21l69 11c11 2 20 12 20 23v102c0 17-15 29-31 25l-64-16c-11-3-18-12-18-23V67Z" fill="url(#c-page)" />
-                <path d="M96 80h48M96 107h68M96 134h56" stroke="#10242C" stroke-width="11" stroke-linecap="round" opacity="0.72" />
-                <path d="M169 56c10 6 16 15 19 27v101c0 10-4 17-11 22 10-2 21-10 23-23V82c-1-12-11-24-31-26Z" fill="#FFFFFF" opacity="0.34" />
-                <path d="M58 164c34 32 80 48 137 44" fill="none" stroke="#57DDD5" stroke-width="10" stroke-linecap="round" opacity="0.7" />
-                <path d="M181 103l7 16 17 6-17 7-7 16-7-16-17-7 17-6 7-16Z" fill="#FFFFFF" />
-                <circle cx="64" cy="85" r="7" fill="#7DEBE3" opacity="0.92" />
-                <circle cx="200" cy="157" r="5" fill="#8BAFFF" opacity="0.9" />
-                <rect x="15.5" y="15.5" width="225" height="225" rx="51.5" fill="none" stroke="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <div class="meta">
-              <h2>C. Meeting Spark</h2>
-              <p class="tagline">A notes-first direction for follow-ups, memory, summaries, and meeting capture.</p>
-              <div class="tokens">
-                <span class="token">notes</span>
-                <span class="token">meeting memory</span>
-                <span class="token">summaries</span>
-              </div>
-            </div>
-          </div>
-          <div class="scale-row">
-            <div class="mini size-64"><svg viewBox="0 0 256 256"><use href="#c-copy" /></svg></div>
-            <div class="mini size-40"><svg viewBox="0 0 256 256"><use href="#c-copy" /></svg></div>
-            <div class="mini size-24"><svg viewBox="0 0 256 256"><use href="#c-copy" /></svg></div>
-            <div class="mini size-16"><svg viewBox="0 0 256 256"><use href="#c-copy" /></svg></div>
-            <div class="score">Best for<br />Sidekick Notes name</div>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="stage">
-            <div class="icon-wrap">
-              <svg class="icon" viewBox="0 0 256 256" role="img" aria-labelledby="title-d">
-                <title id="title-d">Candidate D, Private Halo</title>
-                <defs>
-                  <linearGradient id="d-bg" x1="28" y1="18" x2="226" y2="234" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#23313D" />
-                    <stop offset="0.58" stop-color="#10171D" />
-                    <stop offset="1" stop-color="#05080B" />
-                  </linearGradient>
-                  <linearGradient id="d-lock" x1="84" y1="63" x2="174" y2="198" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#F2FFFF" />
-                    <stop offset="0.45" stop-color="#75EEE3" />
-                    <stop offset="1" stop-color="#6E8FFF" />
-                  </linearGradient>
-                </defs>
-                <rect x="15" y="15" width="226" height="226" rx="52" fill="url(#d-bg)" />
-                <path d="M58 128c0-39 31-70 70-70s70 31 70 70-31 70-70 70-70-31-70-70Z" fill="rgba(255,255,255,0.055)" stroke="#6AE7DF" stroke-width="10" stroke-dasharray="3 17" stroke-linecap="round" />
-                <path d="M90 116h76c8 0 15 7 15 15v44c0 8-7 15-15 15H90c-8 0-15-7-15-15v-44c0-8 7-15 15-15Z" fill="url(#d-lock)" />
-                <path d="M95 116V94c0-20 15-35 33-35s33 15 33 35v22" fill="none" stroke="#B8FFF6" stroke-width="15" stroke-linecap="round" />
-                <circle cx="128" cy="151" r="11" fill="#0D1A21" opacity="0.7" />
-                <path d="M128 160v15" stroke="#0D1A21" stroke-width="8" stroke-linecap="round" opacity="0.7" />
-                <path d="M57 87c21-34 63-52 102-42" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.24" />
-                <rect x="15.5" y="15.5" width="225" height="225" rx="51.5" fill="none" stroke="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <div class="meta">
-              <h2>D. Private Halo</h2>
-              <p class="tagline">Privacy-first, local-model friendly; strongest if the product position is secure capture.</p>
-              <div class="tokens">
-                <span class="token">private</span>
-                <span class="token">local AI</span>
-                <span class="token">secure</span>
-              </div>
-            </div>
-          </div>
-          <div class="scale-row">
-            <div class="mini size-64"><svg viewBox="0 0 256 256"><use href="#d-copy" /></svg></div>
-            <div class="mini size-40"><svg viewBox="0 0 256 256"><use href="#d-copy" /></svg></div>
-            <div class="mini size-24"><svg viewBox="0 0 256 256"><use href="#d-copy" /></svg></div>
-            <div class="mini size-16"><svg viewBox="0 0 256 256"><use href="#d-copy" /></svg></div>
-            <div class="score">Best trust<br />signal</div>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="stage">
-            <div class="icon-wrap">
-              <svg class="icon" viewBox="0 0 256 256" role="img" aria-labelledby="title-e">
-                <title id="title-e">Candidate E, Signal Notes</title>
-                <defs>
-                  <linearGradient id="e-bg" x1="28" y1="21" x2="226" y2="233" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#22343D" />
-                    <stop offset="0.47" stop-color="#111F25" />
-                    <stop offset="1" stop-color="#070B0F" />
-                  </linearGradient>
-                  <linearGradient id="e-wave" x1="56" y1="61" x2="201" y2="193" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#E9FFFD" />
-                    <stop offset="0.39" stop-color="#6CE5D8" />
-                    <stop offset="1" stop-color="#789AFF" />
-                  </linearGradient>
-                </defs>
-                <rect x="15" y="15" width="226" height="226" rx="52" fill="url(#e-bg)" />
-                <path d="M73 142c14-33 26-49 38-49 22 0 16 66 38 66 12 0 24-16 38-49" fill="none" stroke="url(#e-wave)" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M62 83h71M62 109h42M62 181h132" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.24" />
-                <path d="M190 62c12 13 18 29 18 48s-6 35-18 48" fill="none" stroke="#8BEFE6" stroke-width="9" stroke-linecap="round" opacity="0.82" />
-                <path d="M209 43c17 19 26 41 26 67s-9 49-26 67" fill="none" stroke="#7EA8FF" stroke-width="8" stroke-linecap="round" opacity="0.5" />
-                <circle cx="74" cy="142" r="8" fill="#FFFFFF" />
-                <circle cx="184" cy="111" r="8" fill="#FFFFFF" />
-                <rect x="15.5" y="15.5" width="225" height="225" rx="51.5" fill="none" stroke="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <div class="meta">
-              <h2>E. Signal Notes</h2>
-              <p class="tagline">Audio and meeting intelligence: waveform becomes a concise note trail.</p>
-              <div class="tokens">
-                <span class="token">audio</span>
-                <span class="token">transcription</span>
-                <span class="token">notes</span>
-              </div>
-            </div>
-          </div>
-          <div class="scale-row">
-            <div class="mini size-64"><svg viewBox="0 0 256 256"><use href="#e-copy" /></svg></div>
-            <div class="mini size-40"><svg viewBox="0 0 256 256"><use href="#e-copy" /></svg></div>
-            <div class="mini size-24"><svg viewBox="0 0 256 256"><use href="#e-copy" /></svg></div>
-            <div class="mini size-16"><svg viewBox="0 0 256 256"><use href="#e-copy" /></svg></div>
-            <div class="score">Best for<br />voice capture</div>
-          </div>
-        </article>
-
-        <article class="card">
-          <div class="stage">
-            <div class="icon-wrap">
-              <svg class="icon" viewBox="0 0 256 256" role="img" aria-labelledby="title-f">
-                <title id="title-f">Candidate F, Context Prism</title>
-                <defs>
-                  <linearGradient id="f-bg" x1="31" y1="19" x2="225" y2="235" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#27363E" />
-                    <stop offset="0.5" stop-color="#111A20" />
-                    <stop offset="1" stop-color="#06090C" />
-                  </linearGradient>
-                  <linearGradient id="f-prism" x1="74" y1="50" x2="181" y2="204" gradientUnits="userSpaceOnUse">
-                    <stop stop-color="#F4FFFF" />
-                    <stop offset="0.32" stop-color="#76EEE4" />
-                    <stop offset="0.68" stop-color="#77A4FF" />
-                    <stop offset="1" stop-color="#E9F2FF" />
-                  </linearGradient>
-                </defs>
-                <rect x="15" y="15" width="226" height="226" rx="52" fill="url(#f-bg)" />
-                <path d="M128 46 196 86v84l-68 40-68-40V86l68-40Z" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.22)" stroke-width="7" />
-                <path d="M128 70 172 96v54l-44 26-44-26V96l44-26Z" fill="url(#f-prism)" />
-                <path d="M128 70v106M84 96l44 27 44-27M84 150l44-27 44 27" fill="none" stroke="#0D1820" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.54" />
-                <path d="M52 91h29M175 91h29M52 166h29M175 166h29" stroke="#75E8DF" stroke-width="10" stroke-linecap="round" opacity="0.72" />
-                <path d="M89 51 68 73M187 184l-21 22M166 51l21 22M68 184l21 22" stroke="#8BAFFF" stroke-width="7" stroke-linecap="round" opacity="0.55" />
-                <rect x="15.5" y="15.5" width="225" height="225" rx="51.5" fill="none" stroke="rgba(255,255,255,0.18)" />
-              </svg>
-            </div>
-            <div class="meta">
-              <h2>F. Context Prism</h2>
-              <p class="tagline">A more abstract system mark for transforming many inputs into one useful answer.</p>
-              <div class="tokens">
-                <span class="token">multi-modal</span>
-                <span class="token">context</span>
-                <span class="token">AI core</span>
-              </div>
-            </div>
-          </div>
-          <div class="scale-row">
-            <div class="mini size-64"><svg viewBox="0 0 256 256"><use href="#f-copy" /></svg></div>
-            <div class="mini size-40"><svg viewBox="0 0 256 256"><use href="#f-copy" /></svg></div>
-            <div class="mini size-24"><svg viewBox="0 0 256 256"><use href="#f-copy" /></svg></div>
-            <div class="mini size-16"><svg viewBox="0 0 256 256"><use href="#f-copy" /></svg></div>
-            <div class="score">Most premium<br />abstract mark</div>
-          </div>
-        </article>
-      </section>
-
-      <section class="recommend">
-        <div class="note">
-          <h3>Recommendation</h3>
-          <p>
-            Candidate A is the strongest default because it reads as a
-            discreet assistant rather than a generic note app, while still
-            holding up at 16px. Candidate B is the clearest functional icon if
-            screenshot capture stays the primary product story.
-          </p>
-        </div>
-        <div class="dock" aria-label="Dock preview">
-          <div class="mini"><svg viewBox="0 0 256 256"><use href="#a-copy" /></svg></div>
-          <div class="mini"><svg viewBox="0 0 256 256"><use href="#b-copy" /></svg></div>
-          <div class="mini"><svg viewBox="0 0 256 256"><use href="#c-copy" /></svg></div>
-          <div class="mini"><svg viewBox="0 0 256 256"><use href="#d-copy" /></svg></div>
-          <div class="mini"><svg viewBox="0 0 256 256"><use href="#e-copy" /></svg></div>
-          <div class="mini"><svg viewBox="0 0 256 256"><use href="#f-copy" /></svg></div>
+      <section class="panel" style="margin-top: 18px">
+        <h2>Scale Check</h2>
+        <div class="scale-row">
+          <div class="mini"><img src="assets/icons/png/16x16.png" width="16" height="16" alt="" />16px</div>
+          <div class="mini"><img src="assets/icons/png/24x24.png" width="24" height="24" alt="" />24px</div>
+          <div class="mini"><img src="assets/icons/png/32x32.png" width="32" height="32" alt="" />32px</div>
+          <div class="mini"><img src="assets/icons/png/64x64.png" width="64" height="64" alt="" />64px</div>
+          <div class="mini"><img src="assets/icons/png/128x128.png" width="128" height="128" alt="" />128px</div>
         </div>
       </section>
-
-      <svg width="0" height="0" aria-hidden="true" focusable="false">
-        <defs>
-          <g id="a-copy">
-            <rect x="15" y="15" width="226" height="226" rx="52" fill="#0b181d" />
-            <path d="M68 69c41-28 91-26 123 4-39 3-72 18-98 46l66 3c-27 12-50 32-67 60-13-35-21-72-24-113Z" fill="#71e8e2" />
-            <path d="M72 70c24 19 48 36 75 51-18 4-37 12-55 25-10-25-17-51-20-76Z" fill="#10252d" opacity="0.45" />
-            <path d="M94 181c15-27 38-47 65-59 13 10 24 23 32 40-28 5-60 11-97 19Z" fill="#e8fbff" opacity="0.88" />
-            <circle cx="166" cy="85" r="9" fill="#e7fdff" />
-            <path d="M46 178c27 17 75 27 150 14" fill="none" stroke="#84f2e2" stroke-width="9" stroke-linecap="round" opacity="0.72" />
-          </g>
-
-          <g id="b-copy">
-            <rect x="15" y="15" width="226" height="226" rx="52" fill="#0b1217" />
-            <path d="M66 84a18 18 0 0 1 18-18h88a18 18 0 0 1 18 18v88a18 18 0 0 1-18 18H84a18 18 0 0 1-18-18V84Z" fill="#ffffff" opacity="0.1" stroke="#ffffff" stroke-width="8" stroke-opacity="0.23" />
-            <path d="M48 102V76c0-16 12-28 28-28h26M154 48h26c16 0 28 12 28 28v26M208 154v26c0 16-12 28-28 28h-26M102 208H76c-16 0-28-12-28-28v-26" fill="none" stroke="#86efe7" stroke-width="11" stroke-linecap="round" />
-            <circle cx="128" cy="128" r="47" fill="#5ed8e7" />
-            <circle cx="128" cy="128" r="28" fill="#e8ffff" />
-            <path d="M98 98c17-14 41-17 62-8" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" opacity="0.72" />
-            <path d="M118 151h53" stroke="#071014" stroke-width="11" stroke-linecap="round" opacity="0.42" />
-          </g>
-
-          <g id="c-copy">
-            <rect x="15" y="15" width="226" height="226" rx="52" fill="#0b151a" />
-            <path d="M75 67c0-13 11-23 24-21l69 11c11 2 20 12 20 23v102c0 17-15 29-31 25l-64-16c-11-3-18-12-18-23V67Z" fill="#b7f5ee" />
-            <path d="M96 80h48M96 107h68M96 134h56" stroke="#10242c" stroke-width="11" stroke-linecap="round" opacity="0.72" />
-            <path d="M58 164c34 32 80 48 137 44" fill="none" stroke="#57ddd5" stroke-width="10" stroke-linecap="round" opacity="0.7" />
-            <path d="M181 103l7 16 17 6-17 7-7 16-7-16-17-7 17-6 7-16Z" fill="#fff" />
-            <circle cx="64" cy="85" r="7" fill="#7debe3" opacity="0.92" />
-            <circle cx="200" cy="157" r="5" fill="#8bafff" opacity="0.9" />
-          </g>
-
-          <g id="d-copy">
-            <rect x="15" y="15" width="226" height="226" rx="52" fill="#080d11" />
-            <path d="M58 128c0-39 31-70 70-70s70 31 70 70-31 70-70 70-70-31-70-70Z" fill="#fff" opacity="0.055" stroke="#6ae7df" stroke-width="10" stroke-dasharray="3 17" stroke-linecap="round" />
-            <path d="M90 116h76c8 0 15 7 15 15v44c0 8-7 15-15 15H90c-8 0-15-7-15-15v-44c0-8 7-15 15-15Z" fill="#79ece6" />
-            <path d="M95 116V94c0-20 15-35 33-35s33 15 33 35v22" fill="none" stroke="#b8fff6" stroke-width="15" stroke-linecap="round" />
-            <circle cx="128" cy="151" r="11" fill="#0d1a21" opacity="0.7" />
-            <path d="M128 160v15" stroke="#0d1a21" stroke-width="8" stroke-linecap="round" opacity="0.7" />
-          </g>
-
-          <g id="e-copy">
-            <rect x="15" y="15" width="226" height="226" rx="52" fill="#0a1216" />
-            <path d="M73 142c14-33 26-49 38-49 22 0 16 66 38 66 12 0 24-16 38-49" fill="none" stroke="#6ce5d8" stroke-width="20" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M62 83h71M62 109h42M62 181h132" stroke="#fff" stroke-width="10" stroke-linecap="round" opacity="0.24" />
-            <path d="M190 62c12 13 18 29 18 48s-6 35-18 48" fill="none" stroke="#8befe6" stroke-width="9" stroke-linecap="round" opacity="0.82" />
-            <path d="M209 43c17 19 26 41 26 67s-9 49-26 67" fill="none" stroke="#7ea8ff" stroke-width="8" stroke-linecap="round" opacity="0.5" />
-            <circle cx="74" cy="142" r="8" fill="#fff" />
-            <circle cx="184" cy="111" r="8" fill="#fff" />
-          </g>
-
-          <g id="f-copy">
-            <rect x="15" y="15" width="226" height="226" rx="52" fill="#0a1014" />
-            <path d="M128 46 196 86v84l-68 40-68-40V86l68-40Z" fill="#fff" opacity="0.08" stroke="#fff" stroke-width="7" stroke-opacity="0.22" />
-            <path d="M128 70 172 96v54l-44 26-44-26V96l44-26Z" fill="#76eee4" />
-            <path d="M128 70v106M84 96l44 27 44-27M84 150l44-27 44 27" fill="none" stroke="#0d1820" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.54" />
-            <path d="M52 91h29M175 91h29M52 166h29M175 166h29" stroke="#75e8df" stroke-width="10" stroke-linecap="round" opacity="0.72" />
-            <path d="M89 51 68 73M187 184l-21 22M166 51l21 22M68 184l21 22" stroke="#8bafff" stroke-width="7" stroke-linecap="round" opacity="0.55" />
-          </g>
-        </defs>
-      </svg>
     </main>
   </body>
 </html>

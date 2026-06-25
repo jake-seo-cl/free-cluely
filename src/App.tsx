@@ -23,7 +23,7 @@ declare global {
       ) => () => void
       onProcessingNoScreenshots: (callback: () => void) => () => void
       onResetView: (callback: () => void) => () => void
-      takeScreenshot: () => Promise<void>
+      takeScreenshot: () => Promise<{ path: string; preview: string }>
 
       //INITIAL SOLUTION EVENTS
       deleteScreenshot: (
@@ -44,12 +44,15 @@ declare global {
       analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
       analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
       analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
+      analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
       readClipboardText: () => Promise<string>
 
       moveWindowLeft: () => Promise<void>
       moveWindowRight: () => Promise<void>
       moveWindowUp: () => Promise<void>
       moveWindowDown: () => Promise<void>
+      centerAndShowWindow: () => Promise<void>
+      resetWindowPosition: () => Promise<void>
       quitApp: () => Promise<void>
       
       // LLM Model Management
@@ -64,8 +67,11 @@ declare global {
       switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
       switchToGemini: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
       testLlmConnection: () => Promise<{ success: boolean; error?: string }>
-      
-      invoke: (channel: string, ...args: any[]) => Promise<any>
+      getControlSettings: () => Promise<any>
+      updateControlSettings: (patch: any) => Promise<any>
+      resetControlSettings: () => Promise<any>
+      generateLiveMeetingSuggestion: (payload: any) => Promise<any>
+      generateMeetingNotes: (payload: any) => Promise<any>
     }
   }
 }

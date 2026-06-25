@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="sidekick-template-title">
+  <title id="sidekick-template-title">Sidekick Monochrome</title>
+  <rect x="15" y="15" width="226" height="226" rx="52" fill="#000000" />
+  <path d="M75 67c0-13 11-23 24-21l69 11c11 2 20 12 20 23v102c0 17-15 29-31 25l-64-16c-11-3-18-12-18-23V67Z" fill="#FFFFFF" />
+  <path d="M96 80h48M96 107h68M96 134h56" stroke="#000000" stroke-width="11" stroke-linecap="round" opacity="0.72" />
+  <path d="M169 56c10 6 16 15 19 27v101c0 10-4 17-11 22 10-2 21-10 23-23V82c-1-12-11-24-31-26Z" fill="#FFFFFF" opacity="0.34" />
+  <path d="M58 164c34 32 80 48 137 44" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.7" />
+  <path d="M181 103l7 16 17 6-17 7-7 16-7-16-17-7 17-6 7-16Z" fill="#FFFFFF" />
+  <circle cx="64" cy="85" r="7" fill="#FFFFFF" opacity="0.92" />
+  <circle cx="200" cy="157" r="5" fill="#FFFFFF" opacity="0.9" />
+</svg>

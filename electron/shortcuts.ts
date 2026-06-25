@@ -1,11 +1,16 @@
-import { globalShortcut, app } from "electron"
-import { AppState } from "./main" // Adjust the import path if necessary
+import { app, globalShortcut } from "electron"
+import { ShortcutAction } from "./AppSettings"
+import { AppState } from "./main"
 
 export class ShortcutsHelper {
   private appState: AppState
+  private registeredAccelerators = new Set<string>()
 
   constructor(appState: AppState) {
     this.appState = appState
+    app.on("will-quit", () => {
+      this.unregisterGlobalShortcuts()
+    })
   }
 
   private emitMeetingShortcut(action: string): void {
@@ -15,109 +20,105 @@ export class ShortcutsHelper {
     }
   }
 
+  private async takeScreenshot(): Promise<void> {
+    const mainWindow = this.appState.getMainWindow()
+    if (!mainWindow) return
+
+    console.log("Taking screenshot...")
+    try {
+      const screenshotPath = await this.appState.takeScreenshot()
+      const preview = await this.appState.getImagePreview(screenshotPath)
+      mainWindow.webContents.send("screenshot-taken", {
+        path: screenshotPath,
+        preview
+      })
+    } catch (error) {
+      console.error("Error capturing screenshot:", error)
+    }
+  }
+
+  private resetSession(): void {
+    console.log("Reset shortcut pressed. Canceling requests and resetting queues...")
+
+    this.appState.processingHelper.cancelOngoingRequests()
+    this.appState.clearQueues()
+    this.appState.setView("queue")
+
+    const mainWindow = this.appState.getMainWindow()
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("reset-view")
+    }
+  }
+
+  private registerShortcut(
+    accelerator: string,
+    action: ShortcutAction,
+    handler: () => void | Promise<void>
+  ): void {
+    const normalized = accelerator.trim()
+    if (!normalized) return
+    if (this.registeredAccelerators.has(normalized)) {
+      console.warn(`Duplicate shortcut skipped for ${action}: ${normalized}`)
+      return
+    }
+
+    const didRegister = globalShortcut.register(normalized, handler) as unknown as boolean
+    if (didRegister) {
+      this.registeredAccelerators.add(normalized)
+    } else {
+      console.warn(`Could not register shortcut for ${action}: ${normalized}`)
+    }
+  }
+
+  public unregisterGlobalShortcuts(): void {
+    for (const accelerator of this.registeredAccelerators) {
+      globalShortcut.unregister(accelerator)
+    }
+    this.registeredAccelerators.clear()
+  }
+
   public registerGlobalShortcuts(): void {
-    // Add global shortcut to show/center window
-    globalShortcut.register("CommandOrControl+Shift+Space", () => {
-      console.log("Show/Center window shortcut pressed...")
-      this.appState.centerAndShowWindow()
-    })
+    this.unregisterGlobalShortcuts()
 
-    globalShortcut.register("CommandOrControl+H", async () => {
-      const mainWindow = this.appState.getMainWindow()
-      if (mainWindow) {
-        console.log("Taking screenshot...")
-        try {
-          const screenshotPath = await this.appState.takeScreenshot()
-          const preview = await this.appState.getImagePreview(screenshotPath)
-          mainWindow.webContents.send("screenshot-taken", {
-            path: screenshotPath,
-            preview
-          })
-        } catch (error) {
-          console.error("Error capturing screenshot:", error)
-        }
-      }
-    })
+    const settings = this.appState.getControlSettings()
+    if (!settings.shortcuts.enabled) return
 
-    globalShortcut.register("CommandOrControl+Enter", async () => {
-      this.emitMeetingShortcut("manual_answer")
-    })
-
-    globalShortcut.register("CommandOrControl+Shift+S", async () => {
-      this.emitMeetingShortcut("recap")
-    })
-
-    globalShortcut.register("CommandOrControl+Shift+Q", async () => {
-      this.emitMeetingShortcut("follow_up_question")
-    })
-
-    globalShortcut.register("CommandOrControl+Shift+A", async () => {
-      this.emitMeetingShortcut("action_items")
-    })
-
-    globalShortcut.register("CommandOrControl+R", () => {
-      console.log(
-        "Command + R pressed. Canceling requests and resetting queues..."
-      )
-
-      // Cancel ongoing API requests
-      this.appState.processingHelper.cancelOngoingRequests()
-
-      // Clear both screenshot queues
-      this.appState.clearQueues()
-
-      console.log("Cleared queues.")
-
-      // Update the view state to 'queue'
-      this.appState.setView("queue")
-
-      // Notify renderer process to switch view to 'queue'
-      const mainWindow = this.appState.getMainWindow()
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("reset-view")
-      }
-    })
-
-    // New shortcuts for moving the window
-    globalShortcut.register("CommandOrControl+Left", () => {
-      console.log("Command/Ctrl + Left pressed. Moving window left.")
-      this.appState.moveWindowLeft()
-    })
-
-    globalShortcut.register("CommandOrControl+Right", () => {
-      console.log("Command/Ctrl + Right pressed. Moving window right.")
-      this.appState.moveWindowRight()
-    })
-    globalShortcut.register("CommandOrControl+Down", () => {
-      console.log("Command/Ctrl + down pressed. Moving window down.")
-      this.appState.moveWindowDown()
-    })
-    globalShortcut.register("CommandOrControl+Up", () => {
-      console.log("Command/Ctrl + Up pressed. Moving window Up.")
-      this.appState.moveWindowUp()
-    })
-
-    globalShortcut.register("CommandOrControl+B", () => {
-      this.appState.toggleMainWindow()
-      // If window exists and we're showing it, bring it to front
-      const mainWindow = this.appState.getMainWindow()
-      if (mainWindow && this.appState.isVisible()) {
-        // Force the window to the front on macOS
-        if (process.platform === "darwin") {
+    const handlers: Record<ShortcutAction, () => void | Promise<void>> = {
+      show_overlay: () => {
+        console.log("Show overlay shortcut pressed...")
+        this.appState.centerAndShowWindow()
+      },
+      toggle_overlay: () => {
+        this.appState.toggleMainWindow()
+        const mainWindow = this.appState.getMainWindow()
+        if (mainWindow && this.appState.isVisible() && process.platform === "darwin") {
           mainWindow.setAlwaysOnTop(true, "normal")
-          // Reset alwaysOnTop after a brief delay
           setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.setAlwaysOnTop(true, "floating")
             }
           }, 100)
         }
-      }
-    })
+      },
+      reset_overlay_position: () => this.appState.resetWindowPosition(),
+      take_screenshot: () => this.takeScreenshot(),
+      manual_answer: () => this.emitMeetingShortcut("manual_answer"),
+      recap: () => this.emitMeetingShortcut("recap"),
+      follow_up_question: () => this.emitMeetingShortcut("follow_up_question"),
+      action_items: () => this.emitMeetingShortcut("action_items"),
+      reset_session: () => this.resetSession(),
+      move_left: () => this.appState.moveWindowLeft(),
+      move_right: () => this.appState.moveWindowRight(),
+      move_up: () => this.appState.moveWindowUp(),
+      move_down: () => this.appState.moveWindowDown()
+    }
 
-    // Unregister shortcuts when quitting
-    app.on("will-quit", () => {
-      globalShortcut.unregisterAll()
-    })
+    for (const [action, accelerator] of Object.entries(settings.shortcuts.bindings)) {
+      this.registerShortcut(
+        accelerator,
+        action as ShortcutAction,
+        handlers[action as ShortcutAction]
+      )
+    }
   }
 }

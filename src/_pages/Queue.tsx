@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import {
-  BrainCircuit,
   CalendarClock,
   CheckCircle2,
   Clipboard,
@@ -14,7 +13,7 @@ import {
   Radio,
   Search,
   Send,
-  ShieldCheck,
+  Settings2,
   Sparkles,
   Square,
   Trash2,
@@ -31,7 +30,11 @@ import {
   SuggestionTrigger,
   TranscriptSegment
 } from "../types/meeting"
-import ModelSelector from "../components/ui/ModelSelector"
+import SettingsPanel from "../components/ui/SettingsPanel"
+import {
+  defaultSidekickSettings,
+  SidekickSettings
+} from "../types/settings"
 import {
   Toast,
   ToastDescription,
@@ -44,9 +47,12 @@ interface QueueProps {
   setView: React.Dispatch<React.SetStateAction<"queue" | "solutions" | "debug">>
 }
 
-const STORAGE_KEY = "sidekick-notes.meetings.v1"
-const QUEUE_STORAGE_KEY = "sidekick-notes.meetingQueue.v1"
-const SETTINGS_KEY = "sidekick-notes.privacy.v1"
+const STORAGE_KEY = "sidekick.meetings.v1"
+const LEGACY_STORAGE_KEY = "sidekick-notes.meetings.v1"
+const QUEUE_STORAGE_KEY = "sidekick.meetingQueue.v1"
+const LEGACY_QUEUE_STORAGE_KEY = "sidekick-notes.meetingQueue.v1"
+const SETTINGS_KEY = "sidekick.settings.v1"
+const LEGACY_SETTINGS_KEY = "sidekick-notes.privacy.v1"
 const DETECTABLE_MEETING_HOSTS =
   /(zoom\.us|meet\.google\.com|teams\.microsoft\.com|teams\.live\.com|webex\.com|whereby\.com|gotomeeting\.com|bluejeans\.com|app\.slack\.com\/huddle|slack\.com\/call)/i
 
@@ -74,7 +80,9 @@ const newMeetingId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}
 
 const loadStoredMeetings = (): StoredMeeting[] => {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
+    const raw =
+      window.localStorage.getItem(STORAGE_KEY) ||
+      window.localStorage.getItem(LEGACY_STORAGE_KEY)
     if (!raw) return []
     return JSON.parse(raw) as StoredMeeting[]
   } catch {
@@ -88,7 +96,9 @@ const saveStoredMeetings = (meetings: StoredMeeting[]) => {
 
 const loadQueuedMeetings = (): QueuedMeeting[] => {
   try {
-    const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY)
+    const raw =
+      window.localStorage.getItem(QUEUE_STORAGE_KEY) ||
+      window.localStorage.getItem(LEGACY_QUEUE_STORAGE_KEY)
     if (!raw) return []
     return JSON.parse(raw) as QueuedMeeting[]
   } catch {
@@ -100,24 +110,48 @@ const saveQueuedMeetings = (meetings: QueuedMeeting[]) => {
   window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(meetings.slice(0, 50)))
 }
 
-const loadSettings = () => {
-  const defaults = {
-    privateByDefault: true,
-    deleteRawAudio: true,
-    noTraining: true,
-    consentReminder: true,
-    autoDetectMeetings: true,
-    autoStartQueuedMeetings: true,
-    autoEndQueuedMeetings: true,
-    idleResourceMode: true
-  }
+const numberOrDefault = (value: unknown, fallback: number) => {
+  const numberValue = Number(value)
+  return Number.isFinite(numberValue) ? numberValue : fallback
+}
 
+const loadSettings = (): SidekickSettings => {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return defaults
-    return { ...defaults, ...JSON.parse(raw) } as typeof defaults
+    const raw =
+      window.localStorage.getItem(SETTINGS_KEY) ||
+      window.localStorage.getItem(LEGACY_SETTINGS_KEY)
+    if (!raw) return defaultSidekickSettings
+    const parsed = JSON.parse(raw)
+    return {
+      ...defaultSidekickSettings,
+      ...parsed,
+      idleTimeoutMinutes: numberOrDefault(
+        parsed.idleTimeoutMinutes,
+        defaultSidekickSettings.idleTimeoutMinutes
+      ),
+      clipboardScanIntervalSeconds:
+        numberOrDefault(
+          parsed.clipboardScanIntervalSeconds,
+          defaultSidekickSettings.clipboardScanIntervalSeconds
+        ),
+      autoStartLeadTimeMinutes:
+        numberOrDefault(
+          parsed.autoStartLeadTimeMinutes,
+          defaultSidekickSettings.autoStartLeadTimeMinutes
+        ),
+      autoEndGraceMinutes:
+        numberOrDefault(
+          parsed.autoEndGraceMinutes,
+          defaultSidekickSettings.autoEndGraceMinutes
+        ),
+      transcriptChunkSeconds:
+        numberOrDefault(
+          parsed.transcriptChunkSeconds,
+          defaultSidekickSettings.transcriptChunkSeconds
+        )
+    } as SidekickSettings
   } catch {
-    return defaults
+    return defaultSidekickSettings
   }
 }
 
@@ -226,6 +260,20 @@ const blobToBase64 = (blob: Blob) =>
     reader.readAsDataURL(blob)
   })
 
+const formatElapsedTime = (totalSeconds: number) => {
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const paddedMinutes = String(minutes).padStart(2, "0")
+  const paddedSeconds = String(seconds).padStart(2, "0")
+
+  if (hours > 0) {
+    return `${hours}:${paddedMinutes}:${paddedSeconds}`
+  }
+
+  return `${minutes}:${paddedSeconds}`
+}
+
 const InlineButton = ({
   title,
   onClick,
@@ -284,6 +332,7 @@ const Queue: React.FC<QueueProps> = () => {
   const transcriptRef = useRef<TranscriptSegment[]>([])
   const notesRef = useRef<MeetingNotes | undefined>(undefined)
   const audioTasksRef = useRef<Promise<void>[]>([])
+  const lastAutoSuggestionSegmentCountRef = useRef(0)
   const lastClipboardTextRef = useRef("")
   const activeQueuedMeetingIdRef = useRef<string | null>(null)
   const isAutoEndingRef = useRef(false)
@@ -291,16 +340,18 @@ const Queue: React.FC<QueueProps> = () => {
   const lastModelUnloadAtRef = useRef(0)
 
   const [meetingId, setMeetingId] = useState(newMeetingId())
-  const [title, setTitle] = useState("Working session")
+  const [title, setTitle] = useState(() => loadSettings().defaultSessionTitle)
   const [participants, setParticipants] = useState("")
-  const [mode, setMode] = useState<MeetingMode>("general")
+  const [mode, setMode] = useState<MeetingMode>(() => loadSettings().defaultMeetingMode)
   const [context, setContext] = useState("")
   const [isMeetingActive, setIsMeetingActive] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [status, setStatus] = useState("Ready")
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [transcriptSegments, setTranscriptSegments] = useState<TranscriptSegment[]>([])
+  const [meetingInsights, setMeetingInsights] = useState<MeetingAudioAnalysis[]>([])
   const [suggestions, setSuggestions] = useState<LiveMeetingSuggestion[]>([])
   const [notes, setNotes] = useState<MeetingNotes | undefined>()
   const [storedMeetings, setStoredMeetings] = useState<StoredMeeting[]>([])
@@ -309,9 +360,8 @@ const Queue: React.FC<QueueProps> = () => {
   const [lastDetectedAt, setLastDetectedAt] = useState("")
   const [memoryQuery, setMemoryQuery] = useState("")
   const [memoryAnswer, setMemoryAnswer] = useState<LiveMeetingSuggestion | null>(null)
-  const [settings, setSettings] = useState(loadSettings)
-  const [showSettings, setShowSettings] = useState(false)
-  const [showModelSettings, setShowModelSettings] = useState(false)
+  const [settings, setSettings] = useState<SidekickSettings>(loadSettings)
+  const [showSettingsPanel, setShowSettingsPanel] = useState(false)
   const [isIdle, setIsIdle] = useState(false)
   const [toastOpen, setToastOpen] = useState(false)
   const [toastMessage, setToastMessage] = useState<ToastMessage>({
@@ -349,7 +399,7 @@ const Queue: React.FC<QueueProps> = () => {
 
     const interval = window.setInterval(() => {
       const idleForMs = Date.now() - lastActivityAtRef.current
-      setIsIdle(idleForMs > 5 * 60_000 && !isMeetingActive)
+      setIsIdle(idleForMs > settings.idleTimeoutMinutes * 60_000 && !isMeetingActive)
     }, 30_000)
 
     return () => {
@@ -358,7 +408,7 @@ const Queue: React.FC<QueueProps> = () => {
       window.removeEventListener("focus", markActive)
       window.clearInterval(interval)
     }
-  }, [isMeetingActive])
+  }, [isMeetingActive, settings.idleTimeoutMinutes])
 
   useEffect(() => {
     if (!settings.idleResourceMode || !isIdle || isMeetingActive) return
@@ -372,6 +422,21 @@ const Queue: React.FC<QueueProps> = () => {
 
     void unloadIfNeeded()
   }, [isIdle, isMeetingActive, settings.idleResourceMode])
+
+  useEffect(() => {
+    if (!isMeetingActive) {
+      setElapsedSeconds(0)
+      return
+    }
+
+    const updateElapsed = () => {
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startedAtRef.current) / 1000)))
+    }
+
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(interval)
+  }, [isMeetingActive])
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -390,10 +455,10 @@ const Queue: React.FC<QueueProps> = () => {
   }, [
     isMeetingActive,
     transcriptSegments.length,
+    meetingInsights.length,
     suggestions.length,
     notes,
-    showSettings,
-    showModelSettings,
+    showSettingsPanel,
     memoryAnswer,
     queuedMeetings.length
   ])
@@ -420,9 +485,69 @@ const Queue: React.FC<QueueProps> = () => {
   )
 
   const currentSummary = useMemo(() => {
+    const insightSummary = meetingInsights
+      .slice(-4)
+      .map((insight) => insight.summary)
+      .filter(Boolean)
+      .join(" ")
     const recent = transcriptSegments.slice(-4).map((segment) => segment.text).join(" ")
-    return recent || notes?.summary || ""
-  }, [notes?.summary, transcriptSegments])
+    return insightSummary || recent || notes?.summary || ""
+  }, [meetingInsights, notes?.summary, transcriptSegments])
+
+  const hasTranscript = transcriptText.trim().length > 0
+  const recentInsights = meetingInsights.slice(-4).reverse()
+  const openQuestions = Array.from(
+    new Set(meetingInsights.flatMap((insight) => insight.questions).filter(Boolean))
+  ).slice(-4)
+  const liveActionItems = Array.from(
+    new Set(meetingInsights.flatMap((insight) => insight.actionItems).filter(Boolean))
+  ).slice(-4)
+  const latestSuggestion = suggestions[0]
+  const latestTranscriptSegment = transcriptSegments[transcriptSegments.length - 1]
+  const secondsSinceLastTranscript = latestTranscriptSegment
+    ? Math.max(0, elapsedSeconds - Math.round(latestTranscriptSegment.endTime / 1000))
+    : 0
+  const speakerTurnComplete =
+    isMeetingActive &&
+    hasTranscript &&
+    !isAnalyzingAudio &&
+    secondsSinceLastTranscript >= 6
+  const answerHasGaps =
+    !latestSuggestion ||
+    latestSuggestion.confidence === "low" ||
+    latestSuggestion.riskFlags.length > 0
+  const answerCompletenessLabel = !speakerTurnComplete
+    ? "Listening"
+    : answerHasGaps
+      ? "Needs detail"
+      : "Complete"
+  const answerCompletenessClasses = !speakerTurnComplete
+    ? "border-sky-300/40 bg-sky-500/10 text-sky-100"
+    : answerHasGaps
+      ? "border-amber-300/50 bg-amber-500/15 text-amber-100"
+      : "border-emerald-300/50 bg-emerald-500/15 text-emerald-100"
+  const answerCompletenessDetail = !speakerTurnComplete
+    ? "Waiting for the other speaker to finish."
+    : answerHasGaps
+      ? "The response is not fully supported yet."
+      : "The response covers the latest point."
+
+  const liveStateLabel = isRecording ? "Live" : isMeetingActive ? "Paused" : "Idle"
+  const liveStateDescription = isRecording
+    ? "Meeting audio is being captured and analyzed."
+    : isMeetingActive
+      ? "Meeting capture is paused."
+      : "No meeting is being tracked."
+  const livePillClasses = isRecording
+    ? "border-rose-300/50 bg-rose-500/20 text-rose-50"
+    : isMeetingActive
+      ? "border-amber-300/50 bg-amber-500/20 text-amber-50"
+      : "border-white/10 bg-white/5 text-zinc-300"
+  const liveDotClasses = isRecording
+    ? "bg-rose-300"
+    : isMeetingActive
+      ? "bg-amber-300"
+      : "bg-zinc-500"
 
   const filteredMeetings = useMemo(() => {
     const query = memoryQuery.trim().toLowerCase()
@@ -505,13 +630,20 @@ const Queue: React.FC<QueueProps> = () => {
 
   const resetMeetingState = () => {
     setMeetingId(newMeetingId())
+    setTitle(settings.defaultSessionTitle || defaultSidekickSettings.defaultSessionTitle)
+    setParticipants("")
+    setMode(settings.defaultMeetingMode)
+    setContext("")
     setTranscriptSegments([])
+    setMeetingInsights([])
     setSuggestions([])
     setNotes(undefined)
     setStatus("Ready")
+    setElapsedSeconds(0)
     transcriptRef.current = []
     notesRef.current = undefined
     activeQueuedMeetingIdRef.current = null
+    lastAutoSuggestionSegmentCountRef.current = 0
   }
 
   const loadQueuedMeetingIntoForm = (queuedMeeting: QueuedMeeting) => {
@@ -528,10 +660,12 @@ const Queue: React.FC<QueueProps> = () => {
         .join("\n")
     )
     setTranscriptSegments([])
+    setMeetingInsights([])
     setSuggestions([])
     setNotes(undefined)
     transcriptRef.current = []
     notesRef.current = undefined
+    lastAutoSuggestionSegmentCountRef.current = 0
   }
 
   const startMeeting = async (queuedMeeting?: QueuedMeeting) => {
@@ -549,6 +683,7 @@ const Queue: React.FC<QueueProps> = () => {
       streamRef.current = stream
       mediaRecorderRef.current = recorder
       startedAtRef.current = Date.now()
+      setElapsedSeconds(0)
       setIsMeetingActive(true)
       setIsRecording(true)
       setStatus("Listening")
@@ -567,7 +702,7 @@ const Queue: React.FC<QueueProps> = () => {
         setIsRecording(false)
       }
 
-      recorder.start(10000)
+      recorder.start(settings.transcriptChunkSeconds * 1000)
     } catch (error) {
       console.error("Unable to start meeting capture:", error)
       if (queuedMeeting) {
@@ -657,11 +792,18 @@ const Queue: React.FC<QueueProps> = () => {
         blob.type || "audio/webm"
       )) as MeetingAudioAnalysis
 
+      if (result.summary || result.questions.length > 0 || result.actionItems.length > 0) {
+        setMeetingInsights((insights) => [...insights, result].slice(-12))
+      }
+
       if (result.transcript.trim()) {
         const segment: TranscriptSegment = {
           id: newMeetingId(),
           speakerLabel: "Speaker",
-          startTime: Math.max(0, Date.now() - startedAtRef.current - 10000),
+          startTime: Math.max(
+            0,
+            Date.now() - startedAtRef.current - settings.transcriptChunkSeconds * 1000
+          ),
           endTime: Math.max(0, Date.now() - startedAtRef.current),
           text: result.transcript.trim(),
           confidence: result.confidence
@@ -687,29 +829,48 @@ const Queue: React.FC<QueueProps> = () => {
     currentSummary
   })
 
-  const generateSuggestion = async (trigger: SuggestionTrigger) => {
+  const generateSuggestion = async (
+    trigger: SuggestionTrigger,
+    options: { automatic?: boolean } = {}
+  ) => {
+    if (isGenerating) return
     setIsGenerating(true)
-    setStatus(`Generating ${triggerLabels[trigger].toLowerCase()}`)
+    setStatus(options.automatic ? "Updating response" : `Generating ${triggerLabels[trigger].toLowerCase()}`)
     try {
-      const result = (await window.electronAPI.invoke("generate-live-meeting-suggestion", {
+      const result = (await window.electronAPI.generateLiveMeetingSuggestion({
         ...buildMeetingPayload(),
         trigger
       })) as LiveMeetingSuggestion
       setSuggestions((items) => [result, ...items].slice(0, 8))
-      setStatus("Ready")
+      setStatus(isRecording ? "Listening" : "Ready")
     } catch (error) {
       console.error("Live suggestion failed:", error)
-      showToast("Suggestion failed", "The model could not generate a live suggestion.", "error")
+      if (!options.automatic) {
+        showToast("Suggestion failed", "The model could not generate a live suggestion.", "error")
+      }
       setStatus("Suggestion failed")
     } finally {
       setIsGenerating(false)
     }
   }
 
+  useEffect(() => {
+    if (!isMeetingActive || !isRecording || transcriptSegments.length === 0 || isGenerating) return
+    if (lastAutoSuggestionSegmentCountRef.current >= transcriptSegments.length) return
+
+    const timeout = window.setTimeout(() => {
+      if (lastAutoSuggestionSegmentCountRef.current >= transcriptSegments.length) return
+      lastAutoSuggestionSegmentCountRef.current = transcriptSegments.length
+      void generateSuggestion("manual_answer", { automatic: true })
+    }, 1200)
+
+    return () => window.clearTimeout(timeout)
+  }, [isGenerating, isMeetingActive, isRecording, transcriptSegments.length])
+
   const generateNotes = async () => {
     setIsGenerating(true)
     try {
-      const result = (await window.electronAPI.invoke("generate-meeting-notes", {
+      const result = (await window.electronAPI.generateMeetingNotes({
         mode,
         title,
         participants,
@@ -738,7 +899,7 @@ const Queue: React.FC<QueueProps> = () => {
           return `[${new Date(meeting.startedAt).toLocaleDateString()}] ${meeting.title}\n${meeting.notes?.summary || ""}\n${transcript}`
         })
         .join("\n\n")
-      const result = (await window.electronAPI.invoke("generate-live-meeting-suggestion", {
+      const result = (await window.electronAPI.generateLiveMeetingSuggestion({
         trigger: query,
         mode,
         title: "Meeting memory search",
@@ -782,6 +943,42 @@ const Queue: React.FC<QueueProps> = () => {
     saveStoredMeetings(updated)
   }
 
+  const exportMeetingMemory = () => {
+    const exportPayload = {
+      exportedAt: new Date().toISOString(),
+      meetings: storedMeetings
+    }
+    const blob = new Blob([JSON.stringify(exportPayload, null, 2)], {
+      type: "application/json"
+    })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = `sidekick-memory-${new Date().toISOString().slice(0, 10)}.json`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    showToast("Export ready", "Meeting memory exported as JSON.", "success")
+  }
+
+  const clearMeetingMemory = () => {
+    setStoredMeetings([])
+    saveStoredMeetings([])
+    setMemoryAnswer(null)
+    showToast("Memory cleared", "Saved meetings were removed from this device.", "success")
+  }
+
+  const clearMeetingQueue = () => {
+    setQueuedMeetings([])
+    saveQueuedMeetings([])
+    activeQueuedMeetingIdRef.current = null
+    showToast("Queue cleared", "Queued meetings were removed.", "success")
+  }
+
+  const resetSidekickSettings = () => {
+    setSettings(defaultSidekickSettings)
+    showToast("Defaults restored", "Automation and privacy settings were reset.", "success")
+  }
+
   const queueFromDetectorText = () => {
     const detected = parseQueuedMeetings(detectorText, "calendar_text")
     if (detected.length === 0) {
@@ -814,13 +1011,22 @@ const Queue: React.FC<QueueProps> = () => {
     }
 
     void scanClipboard()
-    const intervalMs = settings.idleResourceMode && isIdle && !isMeetingActive ? 60_000 : 5000
+    const intervalMs =
+      settings.idleResourceMode && isIdle && !isMeetingActive
+        ? 60_000
+        : settings.clipboardScanIntervalSeconds * 1000
     const interval = window.setInterval(scanClipboard, intervalMs)
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [isIdle, isMeetingActive, settings.autoDetectMeetings, settings.idleResourceMode])
+  }, [
+    isIdle,
+    isMeetingActive,
+    settings.autoDetectMeetings,
+    settings.clipboardScanIntervalSeconds,
+    settings.idleResourceMode
+  ])
 
   useEffect(() => {
     if (!settings.autoStartQueuedMeetings || isMeetingActive) return
@@ -829,7 +1035,7 @@ const Queue: React.FC<QueueProps> = () => {
       const now = Date.now()
       const dueMeeting = queuedMeetings.find((meeting) => {
         if (meeting.status !== "queued" || !meeting.startTime) return false
-        const startsSoon = meeting.startTime <= now + 60_000
+        const startsSoon = meeting.startTime <= now + settings.autoStartLeadTimeMinutes * 60_000
         const stillRelevant = !meeting.endTime || meeting.endTime >= now - 5 * 60_000
         return startsSoon && stillRelevant
       })
@@ -842,7 +1048,12 @@ const Queue: React.FC<QueueProps> = () => {
     startDueMeeting()
     const interval = window.setInterval(startDueMeeting, 15_000)
     return () => window.clearInterval(interval)
-  }, [settings.autoStartQueuedMeetings, isMeetingActive, queuedMeetings])
+  }, [
+    settings.autoStartQueuedMeetings,
+    settings.autoStartLeadTimeMinutes,
+    isMeetingActive,
+    queuedMeetings
+  ])
 
   useEffect(() => {
     if (!settings.autoEndQueuedMeetings || !isMeetingActive) return
@@ -852,7 +1063,7 @@ const Queue: React.FC<QueueProps> = () => {
       if (!activeId || isAutoEndingRef.current) return
       const activeMeeting = queuedMeetings.find((meeting) => meeting.id === activeId)
       if (!activeMeeting?.endTime) return
-      if (activeMeeting.endTime <= Date.now()) {
+      if (activeMeeting.endTime + settings.autoEndGraceMinutes * 60_000 <= Date.now()) {
         isAutoEndingRef.current = true
         void endMeeting().finally(() => {
           isAutoEndingRef.current = false
@@ -863,7 +1074,12 @@ const Queue: React.FC<QueueProps> = () => {
     endDueMeeting()
     const interval = window.setInterval(endDueMeeting, 15_000)
     return () => window.clearInterval(interval)
-  }, [settings.autoEndQueuedMeetings, isMeetingActive, queuedMeetings])
+  }, [
+    settings.autoEndQueuedMeetings,
+    settings.autoEndGraceMinutes,
+    isMeetingActive,
+    queuedMeetings
+  ])
 
   return (
     <div ref={containerRef} className="select-none p-2 text-zinc-100">
@@ -880,23 +1096,326 @@ const Queue: React.FC<QueueProps> = () => {
       <div className="liquid-glass chat-container overflow-hidden rounded-lg border border-zinc-500/20 bg-zinc-950/70 shadow-2xl">
         <div className="draggable-area flex h-9 items-center justify-between border-b border-white/10 px-3">
           <div className="flex min-w-0 items-center gap-2">
-            <BrainCircuit className="h-4 w-4 shrink-0 text-amber-200" />
-            <div className="truncate text-[13px] font-semibold">Sidekick Notes</div>
-          </div>
-          <div className="flex items-center gap-1">
-            <span
-              className={`h-2 w-2 rounded-full ${isRecording ? "bg-emerald-300" : isMeetingActive ? "bg-amber-300" : "bg-zinc-500"}`}
+            <img
+              src="./sidekick.svg"
+              alt="Sidekick"
+              className="h-4 w-4 shrink-0 rounded-[4px]"
+              draggable={false}
             />
+            <div className="truncate text-[13px] font-semibold">Sidekick</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div
+              className={`flex h-7 items-center gap-1.5 rounded-full border px-2 ${livePillClasses}`}
+              title={liveStateDescription}
+              aria-label={liveStateDescription}
+            >
+              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                {isRecording && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-300 opacity-75" />
+                )}
+                <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${liveDotClasses}`} />
+              </span>
+              <span className="text-[10px] font-bold uppercase leading-none tracking-[0.12em]">
+                {liveStateLabel}
+              </span>
+              {isMeetingActive && (
+                <span className="font-mono text-[10px] leading-none opacity-80">
+                  {formatElapsedTime(elapsedSeconds)}
+                </span>
+              )}
+            </div>
             <span className="max-w-[130px] truncate text-[11px] text-zinc-300">{status}</span>
           </div>
         </div>
 
-        <div className="grid w-[720px] max-w-[calc(100vw-32px)] grid-cols-[1.1fr_0.9fr] gap-3 p-3">
+        <div className="w-[840px] max-w-[calc(100vw-32px)] p-2">
+          <div className="mb-2 grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-md border border-white/10 bg-zinc-950/45 p-2">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_112px] gap-2">
+              <input
+                className="interactive h-8 rounded-md border border-white/10 bg-white/10 px-2 text-[12px] text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-300/50"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Meeting title"
+              />
+              <select
+                className="interactive h-8 rounded-md border border-white/10 bg-zinc-900 px-2 text-[12px] text-zinc-100 outline-none focus:border-amber-300/50"
+                value={mode}
+                onChange={(event) => setMode(event.target.value as MeetingMode)}
+              >
+                {Object.entries(modeLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="interactive col-span-2 h-8 rounded-md border border-white/10 bg-white/10 px-2 text-[12px] text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-300/50"
+                value={participants}
+                onChange={(event) => setParticipants(event.target.value)}
+                placeholder="Participants or account"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {!isMeetingActive ? (
+                <InlineButton title="Start meeting capture" onClick={startMeeting} variant="primary">
+                  <Play className="h-4 w-4" />
+                  Start
+                </InlineButton>
+              ) : (
+                <>
+                  <InlineButton title="Pause or resume capture" onClick={pauseMeeting}>
+                    <Pause className="h-4 w-4" />
+                    {isRecording ? "Pause" : "Resume"}
+                  </InlineButton>
+                  <InlineButton title="End and save meeting" onClick={() => void endMeeting()} variant="danger">
+                    <Square className="h-4 w-4" />
+                    End
+                  </InlineButton>
+                </>
+              )}
+              <InlineButton title="Refresh response" onClick={() => void generateSuggestion("manual_answer")} disabled={isGenerating || !hasTranscript}>
+                <Sparkles className="h-4 w-4" />
+                Answer
+              </InlineButton>
+              <InlineButton title="Generate meeting notes" onClick={() => void generateNotes()} disabled={!hasTranscript || isGenerating}>
+                <FileText className="h-4 w-4" />
+              </InlineButton>
+              <InlineButton title="Settings" onClick={() => setShowSettingsPanel((value) => !value)}>
+                <Settings2 className="h-4 w-4" />
+              </InlineButton>
+            </div>
+          </div>
+
+          {showSettingsPanel && (
+            <div className="mb-2">
+              <SettingsPanel
+                settings={settings}
+                onSettingsChange={setSettings}
+                storedMeetingsCount={storedMeetings.length}
+                queuedMeetingsCount={queuedMeetings.filter((meeting) => meeting.status !== "dismissed").length}
+                isIdle={isIdle}
+                lastDetectedAt={lastDetectedAt}
+                onExportMemory={exportMeetingMemory}
+                onClearMemory={clearMeetingMemory}
+                onClearQueue={clearMeetingQueue}
+                onResetSettings={resetSidekickSettings}
+              />
+            </div>
+          )}
+
+          <div className="grid h-[390px] grid-cols-3 gap-2">
+            <div className="min-w-0 rounded-md border border-white/10 bg-zinc-950/45 p-3">
+              <SectionTitle
+                icon={<Mic className="h-3.5 w-3.5" />}
+                action={
+                  <span className="text-[11px] text-zinc-400">
+                    {isAnalyzingAudio ? "Analyzing" : `${transcriptSegments.length} segments`}
+                  </span>
+                }
+              >
+                Other Person
+              </SectionTitle>
+              <div className="h-[330px] space-y-2 overflow-y-auto pr-1">
+                {transcriptSegments.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-white/15 p-3 text-center text-[12px] text-zinc-400">
+                    Waiting for speech.
+                  </div>
+                ) : (
+                  transcriptSegments.slice(-8).reverse().map((segment) => (
+                    <div key={segment.id} className="rounded-md bg-white/[0.06] p-2">
+                      <div className="mb-1 flex items-center justify-between text-[10px] text-zinc-400">
+                        <span>{formatElapsedTime(Math.round(segment.endTime / 1000))}</span>
+                        <span className={segment.confidence === "low" ? "text-amber-100" : "text-zinc-400"}>
+                          {segment.confidence}
+                        </span>
+                      </div>
+                      <p className="text-[12px] leading-5 text-zinc-100">{segment.text}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0 rounded-md border border-white/10 bg-zinc-950/45 p-3">
+              <SectionTitle
+                icon={<FileText className="h-3.5 w-3.5" />}
+                action={<span className="text-[11px] text-zinc-400">Live summary</span>}
+              >
+                Their Points
+              </SectionTitle>
+              <div className="h-[330px] space-y-3 overflow-y-auto pr-1">
+                <div className="rounded-md bg-white/[0.06] p-2">
+                  <p className="text-[12px] leading-5 text-zinc-100">
+                    {currentSummary || "No summary yet."}
+                  </p>
+                </div>
+                {openQuestions.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-100">
+                      Questions
+                    </div>
+                    <div className="space-y-1.5">
+                      {openQuestions.map((question, index) => (
+                        <div key={`${question}-${index}`} className="rounded-md bg-amber-500/10 p-2 text-[12px] leading-5 text-amber-50">
+                          {question}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {liveActionItems.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-emerald-100">
+                      Actions
+                    </div>
+                    <div className="space-y-1.5">
+                      {liveActionItems.map((item, index) => (
+                        <div key={`${item}-${index}`} className="rounded-md bg-emerald-500/10 p-2 text-[12px] leading-5 text-emerald-50">
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {recentInsights.length > 0 && (
+                  <div className="space-y-1.5">
+                    {recentInsights.map((insight) => (
+                      <div key={insight.timestamp} className="rounded-md border border-white/10 p-2">
+                        <div className="mb-1 text-[10px] uppercase tracking-[0.08em] text-zinc-500">
+                          {insight.confidence}
+                        </div>
+                        <p className="text-[12px] leading-5 text-zinc-300">{insight.summary}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0 rounded-md border border-white/10 bg-zinc-950/45 p-3">
+              <SectionTitle
+                icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                action={
+                  <span className={`rounded border px-2 py-0.5 text-[11px] ${answerCompletenessClasses}`}>
+                    {answerCompletenessLabel}
+                  </span>
+                }
+              >
+                My Response
+              </SectionTitle>
+              <div className="h-[330px] space-y-3 overflow-y-auto pr-1">
+                <div className="rounded-md bg-white/[0.06] p-3">
+                  {latestSuggestion ? (
+                    <p className="whitespace-pre-wrap text-[13px] leading-5 text-zinc-50">
+                      {latestSuggestion.answer}
+                    </p>
+                  ) : (
+                    <p className="text-[12px] leading-5 text-zinc-400">
+                      Response will update as the conversation comes in.
+                    </p>
+                  )}
+                </div>
+                <div className={`rounded-md border p-2 text-[12px] leading-5 ${answerCompletenessClasses}`}>
+                  {answerCompletenessDetail}
+                  {speakerTurnComplete && latestSuggestion && (
+                    <span className="ml-1 opacity-80">
+                      Confidence: {latestSuggestion.confidence}.
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(Object.keys(triggerLabels) as SuggestionTrigger[]).map((trigger) => (
+                    <InlineButton
+                      key={trigger}
+                      title={triggerLabels[trigger]}
+                      onClick={() => void generateSuggestion(trigger)}
+                      disabled={isGenerating || !hasTranscript}
+                      variant={trigger === "manual_answer" ? "primary" : "default"}
+                    >
+                      {trigger === "action_items" ? <ListChecks className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                      {triggerLabels[trigger]}
+                    </InlineButton>
+                  ))}
+                </div>
+                {latestSuggestion?.followUpQuestions.length ? (
+                  <div className="rounded-md bg-amber-500/10 p-2 text-[12px] leading-5 text-amber-50">
+                    {latestSuggestion.followUpQuestions[0]}
+                  </div>
+                ) : null}
+                {latestSuggestion?.riskFlags.length ? (
+                  <div className="rounded-md bg-rose-500/10 p-2 text-[11px] leading-5 text-rose-50">
+                    {latestSuggestion.riskFlags.join(" ")}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {false && (
+        <div className="hidden w-[720px] max-w-[calc(100vw-32px)] grid-cols-[1.1fr_0.9fr] gap-3 p-3">
+          {showSettingsPanel && (
+            <div className="col-span-2">
+              <SettingsPanel
+                settings={settings}
+                onSettingsChange={setSettings}
+                storedMeetingsCount={storedMeetings.length}
+                queuedMeetingsCount={queuedMeetings.filter((meeting) => meeting.status !== "dismissed").length}
+                isIdle={isIdle}
+                lastDetectedAt={lastDetectedAt}
+                onExportMemory={exportMeetingMemory}
+                onClearMemory={clearMeetingMemory}
+                onClearQueue={clearMeetingQueue}
+                onResetSettings={resetSidekickSettings}
+              />
+            </div>
+          )}
+
           <div className="space-y-3">
             <div className="rounded-md border border-white/10 bg-zinc-950/45 p-3">
               <SectionTitle icon={<Mic className="h-3.5 w-3.5" />}>
                 Meeting
               </SectionTitle>
+              {isMeetingActive && (
+                <div
+                  className={`mb-3 rounded-md border p-3 ${
+                    isRecording
+                      ? "border-rose-300/40 bg-rose-500/15"
+                      : "border-amber-300/40 bg-amber-500/15"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="relative flex h-4 w-4 shrink-0">
+                        {isRecording && (
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-300 opacity-70" />
+                        )}
+                        <span className={`relative inline-flex h-4 w-4 rounded-full ${liveDotClasses}`} />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate text-[12px] font-bold uppercase tracking-[0.1em] text-white">
+                          {isRecording ? "Live meeting tracking" : "Meeting tracking paused"}
+                        </div>
+                        <div className="truncate text-[11px] text-zinc-300">
+                          {isRecording
+                            ? "Audio capture is active and transcript evidence is being collected."
+                            : "Resume capture when you want Sidekick to continue tracking."}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-mono text-[18px] font-semibold leading-none text-white">
+                        {formatElapsedTime(elapsedSeconds)}
+                      </div>
+                      <div className="mt-1 text-[10px] uppercase tracking-[0.08em] text-zinc-300">
+                        {isAnalyzingAudio ? "Analyzing" : `${transcriptSegments.length} segments`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-[1fr_auto] gap-2">
                 <input
                   className="interactive h-9 rounded-md border border-white/10 bg-white/10 px-3 text-[13px] text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-300/50"
@@ -956,11 +1475,8 @@ const Queue: React.FC<QueueProps> = () => {
                 <InlineButton title="Reset current meeting" onClick={resetMeetingState} disabled={isMeetingActive}>
                   <Trash2 className="h-4 w-4" />
                 </InlineButton>
-                <InlineButton title="Privacy settings" onClick={() => setShowSettings((value) => !value)}>
-                  <ShieldCheck className="h-4 w-4" />
-                </InlineButton>
-                <InlineButton title="Model settings" onClick={() => setShowModelSettings((value) => !value)}>
-                  <Sparkles className="h-4 w-4" />
+                <InlineButton title="Settings" onClick={() => setShowSettingsPanel((value) => !value)}>
+                  <Settings2 className="h-4 w-4" />
                 </InlineButton>
               </div>
             </div>
@@ -1038,46 +1554,6 @@ const Queue: React.FC<QueueProps> = () => {
                 )}
               </div>
             </div>
-
-            {showSettings && (
-              <div className="rounded-md border border-white/10 bg-zinc-950/45 p-3">
-                <SectionTitle icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-                  Privacy Defaults
-                </SectionTitle>
-                <div className="grid grid-cols-2 gap-2 text-[12px]">
-                  {[
-                    ["privateByDefault", "Private notes"],
-                    ["deleteRawAudio", "Delete raw audio"],
-                    ["noTraining", "No training"],
-                    ["consentReminder", "Consent reminder"],
-                    ["autoDetectMeetings", "Auto-detect meetings"],
-                    ["autoStartQueuedMeetings", "Auto-start due queue"],
-                    ["autoEndQueuedMeetings", "Auto-save at end"],
-                    ["idleResourceMode", "Low-resource idle"]
-                  ].map(([key, label]) => (
-                    <label key={key} className="interactive flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-2">
-                      <input
-                        type="checkbox"
-                        checked={settings[key as keyof typeof settings]}
-                        onChange={(event) =>
-                          setSettings((current) => ({
-                            ...current,
-                            [key]: event.target.checked
-                          }))
-                        }
-                      />
-                      <span>{label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {showModelSettings && (
-              <div className="rounded-md border border-white/10 bg-zinc-950/45 p-3">
-                <ModelSelector onModelChange={() => undefined} onChatOpen={() => undefined} />
-              </div>
-            )}
 
             <div className="rounded-md border border-white/10 bg-zinc-950/45 p-3">
               <SectionTitle
@@ -1184,22 +1660,22 @@ const Queue: React.FC<QueueProps> = () => {
                 </div>
               ) : (
                 <div className="max-h-72 space-y-3 overflow-y-auto pr-1 text-[12px] leading-5">
-                  <p className="text-zinc-100">{notes.summary}</p>
-                  {notes.decisions.length > 0 && (
+                  <p className="text-zinc-100">{notes!.summary}</p>
+                  {notes!.decisions.length > 0 && (
                     <div>
                       <div className="mb-1 font-semibold text-zinc-300">Decisions</div>
                       <ul className="space-y-1">
-                        {notes.decisions.map((decision, index) => (
+                        {notes!.decisions.map((decision, index) => (
                           <li key={index} className="text-zinc-200">- {decision}</li>
                         ))}
                       </ul>
                     </div>
                   )}
-                  {notes.actionItems.length > 0 && (
+                  {notes!.actionItems.length > 0 && (
                     <div>
                       <div className="mb-1 font-semibold text-zinc-300">Actions</div>
                       <ul className="space-y-1">
-                        {notes.actionItems.map((item, index) => (
+                        {notes!.actionItems.map((item, index) => (
                           <li key={index} className="text-zinc-200">
                             - {item.task} <span className="text-zinc-400">({item.owner}, {item.dueDate})</span>
                           </li>
@@ -1207,11 +1683,11 @@ const Queue: React.FC<QueueProps> = () => {
                       </ul>
                     </div>
                   )}
-                  {notes.followUpDraft && (
+                  {notes!.followUpDraft && (
                     <div>
                       <div className="mb-1 font-semibold text-zinc-300">Follow-up</div>
                       <p className="whitespace-pre-wrap rounded-md bg-white/[0.06] p-2 text-zinc-200">
-                        {notes.followUpDraft}
+                        {notes!.followUpDraft}
                       </p>
                     </div>
                   )}
@@ -1242,7 +1718,7 @@ const Queue: React.FC<QueueProps> = () => {
               </form>
               {memoryAnswer && (
                 <div className="mb-2 rounded-md border border-emerald-300/20 bg-emerald-500/10 p-2 text-[12px] leading-5 text-emerald-50">
-                  {memoryAnswer.answer}
+                  {memoryAnswer?.answer}
                 </div>
               )}
               <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
@@ -1269,6 +1745,7 @@ const Queue: React.FC<QueueProps> = () => {
             </div>
           </div>
         </div>
+        )}
 
         <div className="border-t border-white/10 px-3 py-2 text-[11px] text-zinc-400">
           {settings.consentReminder

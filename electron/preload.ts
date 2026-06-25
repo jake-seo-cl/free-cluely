@@ -26,15 +26,17 @@ interface ElectronAPI {
 
   onUnauthorized: (callback: () => void) => () => void
   onDebugError: (callback: (error: string) => void) => () => void
-  takeScreenshot: () => Promise<void>
+  takeScreenshot: () => Promise<{ path: string; preview: string }>
   moveWindowLeft: () => Promise<void>
   moveWindowRight: () => Promise<void>
   moveWindowUp: () => Promise<void>
   moveWindowDown: () => Promise<void>
+  centerAndShowWindow: () => Promise<void>
+  resetWindowPosition: () => Promise<void>
   analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => Promise<any>
   analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
-  analyzeImageFile: (path: string) => Promise<void>
+  analyzeImageFile: (path: string) => Promise<{ text: string; timestamp: number }>
   readClipboardText: () => Promise<string>
   quitApp: () => Promise<void>
   
@@ -50,8 +52,11 @@ interface ElectronAPI {
   switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
   switchToGemini: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
   testLlmConnection: () => Promise<{ success: boolean; error?: string }>
-  
-  invoke: (channel: string, ...args: any[]) => Promise<any>
+  getControlSettings: () => Promise<any>
+  updateControlSettings: (patch: any) => Promise<any>
+  resetControlSettings: () => Promise<any>
+  generateLiveMeetingSuggestion: (payload: any) => Promise<any>
+  generateMeetingNotes: (payload: any) => Promise<any>
 }
 
 export const PROCESSING_EVENTS = {
@@ -121,11 +126,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   },
 
   onDebugSuccess: (callback: (data: any) => void) => {
-    ipcRenderer.on("debug-success", (_event, data) => callback(data))
+    const subscription = (_event: any, data: any) => callback(data)
+    ipcRenderer.on("debug-success", subscription)
     return () => {
-      ipcRenderer.removeListener("debug-success", (_event, data) =>
-        callback(data)
-      )
+      ipcRenderer.removeListener("debug-success", subscription)
     }
   },
   onDebugError: (callback: (error: string) => void) => {
@@ -191,6 +195,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   moveWindowRight: () => ipcRenderer.invoke("move-window-right"),
   moveWindowUp: () => ipcRenderer.invoke("move-window-up"),
   moveWindowDown: () => ipcRenderer.invoke("move-window-down"),
+  centerAndShowWindow: () => ipcRenderer.invoke("center-and-show-window"),
+  resetWindowPosition: () => ipcRenderer.invoke("reset-window-position"),
   analyzeAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType),
   analyzeMeetingAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-meeting-audio-base64", data, mimeType),
   analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
@@ -210,6 +216,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchToOllama: (model?: string, url?: string) => ipcRenderer.invoke("switch-to-ollama", model, url),
   switchToGemini: (apiKey?: string) => ipcRenderer.invoke("switch-to-gemini", apiKey),
   testLlmConnection: () => ipcRenderer.invoke("test-llm-connection"),
-  
-  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args)
+  getControlSettings: () => ipcRenderer.invoke("get-control-settings"),
+  updateControlSettings: (patch: any) => ipcRenderer.invoke("update-control-settings", patch),
+  resetControlSettings: () => ipcRenderer.invoke("reset-control-settings"),
+  generateLiveMeetingSuggestion: (payload: any) => ipcRenderer.invoke("generate-live-meeting-suggestion", payload),
+  generateMeetingNotes: (payload: any) => ipcRenderer.invoke("generate-meeting-notes", payload)
 } as ElectronAPI)

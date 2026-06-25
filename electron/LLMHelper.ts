@@ -66,7 +66,7 @@ const RECOMMENDED_LOCAL_MODELS: RecommendedLocalModel[] = [
 
 export class LLMHelper {
   private model: GenerativeModel | null = null
-  private readonly systemPrompt = `You are Sidekick Notes, a private meeting and screen assistant. Keep responses concise, evidence-grounded, and useful in the moment. For any user input, identify the situation, summarize relevant context, and suggest practical next steps. Flag uncertainty instead of inventing facts.`
+  private readonly systemPrompt = `You are Sidekick, a private meeting and screen assistant. Keep responses concise, evidence-grounded, and useful in the moment. For any user input, identify the situation, summarize relevant context, and suggest practical next steps. Flag uncertainty instead of inventing facts.`
   private useOllama: boolean = false
   private ollamaModel: string = "qwen3:8b"
   private ollamaUrl: string = "http://localhost:11434"
@@ -99,6 +99,14 @@ export class LLMHelper {
         mimeType: "image/png"
       }
     }
+  }
+
+  private getGeminiModel(feature: string): GenerativeModel {
+    if (!this.model) {
+      throw new Error(`${feature} requires Gemini. Switch to Gemini for image or audio analysis.`)
+    }
+
+    return this.model
   }
 
   private cleanJsonResponse(text: string): string {
@@ -212,6 +220,7 @@ export class LLMHelper {
 
   public async extractProblemFromImages(imagePaths: string[]) {
     try {
+      const model = this.getGeminiModel("Image analysis")
       const imageParts = await Promise.all(imagePaths.map(path => this.fileToGenerativePart(path)))
       
       const prompt = `${this.systemPrompt}\n\nYou are a wingman. Please analyze these images and extract the following information in JSON format:\n{
@@ -221,7 +230,7 @@ export class LLMHelper {
   "reasoning": "Explanation of why these suggestions are appropriate."
 }\nImportant: Return ONLY the JSON object, without any markdown formatting or code blocks.`
 
-      const result = await this.model.generateContent([prompt, ...imageParts])
+      const result = await model.generateContent([prompt, ...imageParts])
       const response = await result.response
       const text = this.cleanJsonResponse(response.text())
       return JSON.parse(text)
@@ -232,6 +241,16 @@ export class LLMHelper {
   }
 
   public async generateSolution(problemInfo: any) {
+    const fallback = {
+      solution: {
+        code: "I do not have enough reliable context to produce a final answer.",
+        problem_statement: "No problem statement available.",
+        context: "",
+        suggested_responses: [] as string[],
+        reasoning: "The model response could not be parsed as structured JSON."
+      }
+    }
+
     const prompt = `${this.systemPrompt}\n\nGiven this problem or situation:\n${JSON.stringify(problemInfo, null, 2)}\n\nPlease provide your response in the following JSON format:\n{
   "solution": {
     "code": "The code or main answer here.",
@@ -242,13 +261,10 @@ export class LLMHelper {
   }
 }\nImportant: Return ONLY the JSON object, without any markdown formatting or code blocks.`
 
-    console.log("[LLMHelper] Calling Gemini LLM for solution...");
+    console.log("[LLMHelper] Calling configured LLM for solution...");
     try {
-      const result = await this.model.generateContent(prompt)
-      console.log("[LLMHelper] Gemini LLM returned result.");
-      const response = await result.response
-      const text = this.cleanJsonResponse(response.text())
-      const parsed = JSON.parse(text)
+      const text = await this.generateText(prompt)
+      const parsed = this.parseJsonResponse(text, fallback)
       console.log("[LLMHelper] Parsed LLM response:", parsed)
       return parsed
     } catch (error) {
@@ -259,6 +275,7 @@ export class LLMHelper {
 
   public async debugSolutionWithImages(problemInfo: any, currentCode: string, debugImagePaths: string[]) {
     try {
+      const model = this.getGeminiModel("Image debugging")
       const imageParts = await Promise.all(debugImagePaths.map(path => this.fileToGenerativePart(path)))
       
       const prompt = `${this.systemPrompt}\n\nYou are a wingman. Given:\n1. The original problem or situation: ${JSON.stringify(problemInfo, null, 2)}\n2. The current response or approach: ${currentCode}\n3. The debug information in the provided images\n\nPlease analyze the debug information and provide feedback in this JSON format:\n{
@@ -271,7 +288,7 @@ export class LLMHelper {
   }
 }\nImportant: Return ONLY the JSON object, without any markdown formatting or code blocks.`
 
-      const result = await this.model.generateContent([prompt, ...imageParts])
+      const result = await model.generateContent([prompt, ...imageParts])
       const response = await result.response
       const text = this.cleanJsonResponse(response.text())
       const parsed = JSON.parse(text)
@@ -285,6 +302,7 @@ export class LLMHelper {
 
   public async analyzeAudioFile(audioPath: string) {
     try {
+      const model = this.getGeminiModel("Audio analysis")
       const audioData = await fs.promises.readFile(audioPath);
       const audioPart = {
         inlineData: {
@@ -293,7 +311,7 @@ export class LLMHelper {
         }
       };
       const prompt = `${this.systemPrompt}\n\nDescribe this audio clip in a short, concise answer. In addition to your main answer, suggest several possible actions or responses the user could take next based on the audio. Do not return a structured JSON object, just answer naturally as you would to a user.`;
-      const result = await this.model.generateContent([prompt, audioPart]);
+      const result = await model.generateContent([prompt, audioPart]);
       const response = await result.response;
       const text = response.text();
       return { text, timestamp: Date.now() };
@@ -305,9 +323,7 @@ export class LLMHelper {
 
   public async analyzeAudioFromBase64(data: string, mimeType: string) {
     try {
-      if (!this.model) {
-        throw new Error("Audio analysis requires Gemini. Switch to Gemini or paste transcript text manually.")
-      }
+      const model = this.getGeminiModel("Audio analysis")
 
       const audioPart = {
         inlineData: {
@@ -316,7 +332,7 @@ export class LLMHelper {
         }
       };
       const prompt = `${this.systemPrompt}\n\nDescribe this audio clip in a short, concise answer. In addition to your main answer, suggest several possible actions or responses the user could take next based on the audio. Do not return a structured JSON object, just answer naturally as you would to a user and be concise.`;
-      const result = await this.model.generateContent([prompt, audioPart]);
+      const result = await model.generateContent([prompt, audioPart]);
       const response = await result.response;
       const text = response.text();
       return { text, timestamp: Date.now() };
@@ -338,9 +354,7 @@ export class LLMHelper {
     }
 
     try {
-      if (!this.model) {
-        throw new Error("Meeting audio analysis requires Gemini. Switch to Gemini or paste transcript text manually.")
-      }
+      const model = this.getGeminiModel("Meeting audio analysis")
 
       const audioPart = {
         inlineData: {
@@ -366,7 +380,7 @@ Rules:
 - If audio is unclear, keep transcript short and set confidence to "low".
 - If no action items or questions were heard, return empty arrays.`
 
-      const result = await this.model.generateContent([prompt, audioPart])
+      const result = await model.generateContent([prompt, audioPart])
       const response = await result.response
       const parsed = this.parseJsonResponse(response.text(), fallback)
       return { ...fallback, ...parsed, timestamp: Date.now() }
@@ -452,7 +466,7 @@ Rules:
       timestamp: Date.now()
     }
 
-    const prompt = `You are Sidekick Notes, a private meeting-notes assistant. Produce accurate, share-ready notes from the transcript.
+    const prompt = `You are Sidekick, a private meeting-notes assistant. Produce accurate, share-ready notes from the transcript.
 
 Meeting mode: ${payload.mode}
 Meeting title: ${payload.title || "Untitled meeting"}
@@ -489,6 +503,7 @@ Rules:
 
   public async analyzeImageFile(imagePath: string) {
     try {
+      const model = this.getGeminiModel("Image analysis")
       const imageData = await fs.promises.readFile(imagePath);
       const imagePart = {
         inlineData: {
@@ -497,7 +512,7 @@ Rules:
         }
       };
       const prompt = `${this.systemPrompt}\n\nDescribe the content of this image in a short, concise answer. In addition to your main answer, suggest several possible actions or responses the user could take next based on the image. Do not return a structured JSON object, just answer naturally as you would to a user. Be concise and brief.`;
-      const result = await this.model.generateContent([prompt, imagePart]);
+      const result = await model.generateContent([prompt, imagePart]);
       const response = await result.response;
       const text = response.text();
       return { text, timestamp: Date.now() };

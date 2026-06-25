@@ -5,13 +5,21 @@ import { ScreenshotHelper } from "./ScreenshotHelper"
 import { ShortcutsHelper } from "./shortcuts"
 import { ProcessingHelper } from "./ProcessingHelper"
 import { LocalRuntimeManager } from "./LocalRuntimeManager"
+import path from "node:path"
+import {
+  AppSettingsStore,
+  ControlSettings,
+  ControlSettingsPatch
+} from "./AppSettings"
 
-const TRAY_ICON_PNG =
-  "iVBORw0KGgoAAAANSUhEUgAAACwAAAAsCAYAAAAehFoBAAAACXBIWXMAAAsTAAALEwEAmpwYAAABoElEQVR4nO2YvUoDQRRGT6FbaCy00FoQfI8YNWDjT1L5AGphEX8QbLQQTC2WMYWIjyH4CNqJYGxik87GGIuRwVkYQhLYmZ3dWdkDX5Ms2cPdm5s7gZwc75hQyQxbwDoZ4g64JSMsAt9AF1jAc+aAZ0CoPAGzeMgMsAd8aLJh2sAuMI1HVW0CnwNkw8j3btS1xgRAGTgATiyzDcwD1wNkr4CCbVWWgfcRFTFJB1gDLrXXLmxFQ9mfmGWFSg+oAK/ACzBmKxs4qKxQedSk74HTOKpbdiQrgElNWj7B/TiEjx0Ko/aHB63SG1hy7liYvkr31BfRS+FgiHTH5tfOpXCx71669I6Pwi2gNKTSZz4KixGR982FRVaEv4AGUI+YhlrSExfeNP0w/vaGxIVtVr+pNITlCdeUahrCXXUaiLq0N9Pq4cxNCfGfx1ojQht4M9YqaQsXHI0yEYfwUQxjrWogfGgqvGo51qKMMj3ypG5EoPbWJCfEGzCOBSWH/0uIvsgz3ZKNrC7dSqCyRWJEtscKUDNYLesjUlM9a9UGOTk5uOMXWe648d10Ft4AAAAASUVORK5CYII="
+const getAssetPath = (...parts: string[]) =>
+  app.isPackaged
+    ? path.join(process.resourcesPath, "assets", ...parts)
+    : path.join(app.getAppPath(), "assets", ...parts)
 
 function createTrayImage() {
   const image = nativeImage
-    .createFromBuffer(Buffer.from(TRAY_ICON_PNG, "base64"))
+    .createFromPath(getAssetPath("icons", "tray", "sidekickTemplate.png"))
     .resize({ width: 18, height: 18 })
   image.setTemplateImage(true)
   return image
@@ -25,6 +33,7 @@ export class AppState {
   public shortcutsHelper: ShortcutsHelper
   public processingHelper: ProcessingHelper
   public localRuntimeManager: LocalRuntimeManager
+  private settingsStore: AppSettingsStore
   private tray: Tray | null = null
 
   // View management
@@ -71,6 +80,9 @@ export class AppState {
     // Initialize managed local model runtime
     this.localRuntimeManager = new LocalRuntimeManager()
 
+    // Initialize persisted app controls/settings
+    this.settingsStore = new AppSettingsStore()
+
     // Initialize ShortcutsHelper
     this.shortcutsHelper = new ShortcutsHelper(this)
   }
@@ -106,6 +118,24 @@ export class AppState {
 
   public getLocalRuntimeManager(): LocalRuntimeManager {
     return this.localRuntimeManager
+  }
+
+  public getControlSettings(): ControlSettings {
+    return this.settingsStore.getSettings()
+  }
+
+  public updateControlSettings(patch: ControlSettingsPatch): ControlSettings {
+    const settings = this.settingsStore.updateSettings(patch)
+    this.windowHelper.applyControlSettings()
+    this.shortcutsHelper.registerGlobalShortcuts()
+    return settings
+  }
+
+  public resetControlSettings(): ControlSettings {
+    const settings = this.settingsStore.resetSettings()
+    this.windowHelper.applyControlSettings()
+    this.shortcutsHelper.registerGlobalShortcuts()
+    return settings
   }
 
   public getProblemInfo(): any {
@@ -198,6 +228,10 @@ export class AppState {
     this.windowHelper.moveWindowUp()
   }
 
+  public resetWindowPosition(): void {
+    this.windowHelper.resetWindowPosition()
+  }
+
   public centerAndShowWindow(): void {
     if (this.windowHelper.getMainWindow() === null) {
       this.windowHelper.createWindow()
@@ -214,7 +248,7 @@ export class AppState {
     
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Sidekick Notes Live',
+        label: 'Sidekick Live',
         enabled: false
       },
       {
@@ -271,7 +305,7 @@ export class AppState {
       }
     ])
     
-    this.tray.setToolTip('Sidekick Notes is live - click for overlay')
+    this.tray.setToolTip('Sidekick is live - click for overlay')
     this.tray.setContextMenu(contextMenu)
     
     // Make the menu-bar item itself act like a pull-up control.

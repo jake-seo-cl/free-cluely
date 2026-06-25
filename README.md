@@ -1,9 +1,6 @@
-# [Sponsored by Recall AI - API for desktop recording](https://docs.recall.ai/docs/desktop-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely)
-If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://docs.recall.ai/docs/desktop-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
+# Sidekick
 
-# Sidekick Notes
-
-Sidekick Notes is a private desktop assistant for live meeting capture, grounded suggestions, searchable meeting memory, and share-ready follow-up notes.
+Sidekick is a private desktop assistant for live meeting capture, grounded suggestions, searchable meeting memory, and share-ready follow-up notes.
 
 
 ## 🚀 Quick Start Guide
@@ -19,7 +16,7 @@ Sidekick Notes is a private desktop assistant for live meeting capture, grounded
 1. Clone the repository:
 ```bash
 git clone [repository-url]
-cd sidekick-notes
+cd sidekick
 ```
 
 2. Install dependencies:
@@ -97,7 +94,7 @@ The built app will be in the `release` folder.
 
 1. **Closing the App**: 
    - Press `Cmd + Q` (Mac) or `Ctrl + Q` (Windows/Linux) to quit
-   - Or use Activity Monitor/Task Manager to close `Sidekick Notes`
+   - Or use Activity Monitor/Task Manager to close `Sidekick`
    - The X button currently doesn't work (known issue)
 
 2. **If the app doesn't start**:
@@ -216,9 +213,9 @@ If you see other errors:
 ✓ Algorithm and architecture guidance
 ```
 
-## Why Choose Sidekick Notes?
+## Why Choose Sidekick?
 
-| Feature | Sidekick Notes | Commercial Alternatives |
+| Feature | Sidekick | Commercial Alternatives |
 |---------|-------------|------------------------|
 | **Cost** | 100% Free | $29-99/month |
 | **Privacy** | Local AI Option | Cloud-only |
@@ -262,7 +259,7 @@ ISC License - Free for personal and commercial use.
 
 ---
 
-**Star this repo if Sidekick Notes helps you capture better meetings and follow-ups.**
+**Star this repo if Sidekick helps you capture better meetings and follow-ups.**
 
 ### 🏷️ Tags
 `ai-assistant` `meeting-notes` `live-notes` `ollama` `gemini-ai` `electron-app` `cross-platform` `privacy-focused` `open-source` `local-ai` `screenshot-analysis` `sales-assistant` `customer-success`

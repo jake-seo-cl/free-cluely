@@ -1,6 +1,6 @@
 {
-  "short_name": "Interview Coder",
-  "name": "Interview Coder",
+  "short_name": "Sidekick",
+  "name": "Sidekick",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +20,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#111A20",
+  "background_color": "#071014"
 }
